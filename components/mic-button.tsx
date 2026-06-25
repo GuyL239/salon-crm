@@ -42,7 +42,7 @@ export function MicButton({ onResult, onInterim, disabled }: Props) {
     rec.continuous = false; // auto-stop after a pause
     recRef.current = rec;
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    rec.onresult = (e: any) => {
       let interim = "";
       let final = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
