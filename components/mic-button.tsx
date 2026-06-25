@@ -13,7 +13,7 @@ interface Props {
 /* Resolve the vendor-prefixed constructor once at module level */
 const SpeechRecognitionCtor =
   typeof window !== "undefined"
-    ? (window.SpeechRecognition ?? (window as any).webkitSpeechRecognition ?? null)
+    ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition ?? null)
     : null;
 
 export function MicButton({ onResult, onInterim, disabled }: Props) {
