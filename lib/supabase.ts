@@ -28,4 +28,5 @@ export type Visit = {
   deal_amount: number | null;
   items_sold: string | null;
   is_completed: boolean;
+  visit_time: string | null; // "HH:MM:SS" from PostgreSQL time type
 };
