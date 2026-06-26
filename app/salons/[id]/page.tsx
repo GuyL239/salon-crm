@@ -15,12 +15,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ConfirmDelete } from "@/components/confirm-delete";
 import { MicButton } from "@/components/mic-button";
 import {
-  ChevronRight, Plus, Scissors, User, MapPin,
+  ChevronRight, ChevronLeft, Plus, Scissors, User, MapPin,
   CalendarDays, Briefcase, StickyNote, Clock,
-  Phone, Navigation, ShoppingBag, Banknote, Pencil,
+  Phone, Navigation, ShoppingBag, Banknote, Pencil, Trash2, X,
 } from "lucide-react";
 
 const ease = [0.32, 0.72, 0, 1] as const;
@@ -29,6 +28,12 @@ const itemVariants = {
   hidden: { opacity: 0, y: 18 },
   show:   { opacity: 1, y: 0, transition: { duration: 0.34, ease } },
 };
+
+// Local-timezone date (avoids midnight UTC bug)
+function getLocalToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /* ─── Types ─── */
 type VisitForm = {
@@ -39,14 +44,16 @@ type VisitForm = {
   notes: string;
 };
 
-const today = new Date().toISOString().split("T")[0];
-const emptyVisitForm: VisitForm = {
-  visit_date: today,
-  deal_amount: "",
-  items_sold: "",
-  last_offer_description: "",
-  notes: "",
+type SalonForm = {
+  name: string;
+  owner_name: string;
+  street_address: string;
+  phone_number: string;
 };
+
+function emptyVisitForm(): VisitForm {
+  return { visit_date: getLocalToday(), deal_amount: "", items_sold: "", last_offer_description: "", notes: "" };
+}
 
 function visitToForm(v: Visit): VisitForm {
   return {
@@ -81,18 +88,14 @@ function urgencyChip(d: string): { label: string; classes: string } {
 
 /* ─── Shared visit form fields ─── */
 function VisitFormFields({
-  form,
-  onChange,
-  onAppend,
+  form, onChange, onAppend,
 }: {
   form: VisitForm;
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-  /** Append dictated text to a specific field */
   onAppend: (field: keyof VisitForm, text: string) => void;
 }) {
   const inputCls = "rounded-2xl border-gray-200 dark:border-indigo-700/50";
   const labelCls = "font-semibold text-slate-700 dark:text-indigo-200";
-
   return (
     <>
       <div className="flex flex-col gap-1.5">
@@ -100,12 +103,10 @@ function VisitFormFields({
         <Input id="vf-date" name="visit_date" type="date"
           value={form.visit_date} onChange={onChange} required className={inputCls} />
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="vf-amount" className={labelCls}>
-            סכום עסקה
-            <span className="mr-1 text-xs font-normal text-slate-400">(₪)</span>
+            סכום עסקה <span className="text-xs font-normal text-slate-400">(₪)</span>
           </Label>
           <Input id="vf-amount" name="deal_amount" type="number" min="0" step="0.01"
             placeholder="0" value={form.deal_amount} onChange={onChange} className={inputCls} />
@@ -116,8 +117,6 @@ function VisitFormFields({
             placeholder="שמפו, תרסיס..." value={form.items_sold} onChange={onChange} className={inputCls} />
         </div>
       </div>
-
-      {/* Offer field + mic */}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor="vf-offer" className={labelCls}>הצעה שהוצגה</Label>
@@ -126,8 +125,6 @@ function VisitFormFields({
         <Input id="vf-offer" name="last_offer_description"
           placeholder="חבילת צבע + טיפול" value={form.last_offer_description} onChange={onChange} className={inputCls} />
       </div>
-
-      {/* Notes field + mic */}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor="vf-notes" className={labelCls}>הערות</Label>
@@ -141,26 +138,131 @@ function VisitFormFields({
   );
 }
 
+/* ─── Edit Salon bottom-sheet ─── */
+function EditSalonSheet({
+  salon, onClose, onSaved,
+}: {
+  salon: Salon;
+  onClose: () => void;
+  onSaved: (updated: Salon) => void;
+}) {
+  const [form, setForm] = useState<SalonForm>({
+    name: salon.name,
+    owner_name: salon.owner_name,
+    street_address: salon.street_address,
+    phone_number: salon.phone_number ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState<string | null>(null);
+
+  const inputCls = "w-full rounded-xl border border-gray-200 dark:border-indigo-700 bg-gray-50 dark:bg-indigo-800/60 px-3 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-pink-400 dark:focus:border-pink-600 transition-colors";
+  const labelCls = "mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400";
+
+  async function handleSave() {
+    setSaving(true);
+    setErr(null);
+    const { error } = await supabase.from("salons").update({
+      name: form.name.trim(),
+      owner_name: form.owner_name.trim(),
+      street_address: form.street_address.trim(),
+      phone_number: form.phone_number.trim() || null,
+    }).eq("id", salon.id);
+    setSaving(false);
+    if (error) { setErr(error.message); return; }
+    onSaved({ ...salon, ...form, phone_number: form.phone_number.trim() || null });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-8 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200 dark:bg-indigo-700" />
+        <div className="mb-5 flex items-center justify-between">
+          <h3 className="text-lg font-black text-slate-900 dark:text-white">עריכת פרטי מספרה</h3>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-indigo-800 text-slate-400">
+            <X size={15} strokeWidth={2.5} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 mb-5">
+          <div>
+            <label className={labelCls}>שם המספרה</label>
+            <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>שם הבעלים</label>
+            <input value={form.owner_name} onChange={(e) => setForm(p => ({ ...p, owner_name: e.target.value }))} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>כתובת</label>
+            <input value={form.street_address} onChange={(e) => setForm(p => ({ ...p, street_address: e.target.value }))} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>מספר טלפון</label>
+            <input dir="ltr" value={form.phone_number} onChange={(e) => setForm(p => ({ ...p, phone_number: e.target.value }))} className={inputCls} />
+          </div>
+        </div>
+        {err && <p className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs font-mono text-red-600 dark:text-red-400">{err}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={onClose} className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300">ביטול</button>
+          <button onClick={handleSave} disabled={saving} className="rounded-2xl bg-pink-500 py-3 text-sm font-bold text-white disabled:opacity-60">
+            {saving ? "שומר..." : "שמור"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Delete confirm dialog ─── */
+function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onCancel}>
+      <div className="mx-6 w-full max-w-sm rounded-3xl bg-white dark:bg-indigo-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-black text-slate-900 dark:text-white">מחיקת ביקור</h3>
+        <p className="mt-2 text-sm text-slate-500 dark:text-indigo-400">{message}</p>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button onClick={onCancel} className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300">ביטול</button>
+          <button onClick={onConfirm} className="rounded-2xl bg-red-500 py-3 text-sm font-bold text-white">מחק</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Page ─── */
 export default function SalonPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const [salon, setSalon] = useState<Salon | null>(null);
+  const [salon, setSalon]   = useState<Salon | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Add visit
-  const [addOpen, setAddOpen] = useState(false);
-  const [addForm, setAddForm] = useState<VisitForm>(emptyVisitForm);
+  const [addOpen, setAddOpen]   = useState(false);
+  const [addForm, setAddForm]   = useState<VisitForm>(emptyVisitForm);
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Edit visit
+  // Edit visit (rich form with mic support)
   const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
-  const [editForm, setEditForm] = useState<VisitForm>(emptyVisitForm);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
+  const [editForm, setEditForm]         = useState<VisitForm>(emptyVisitForm);
+  const [editSaving, setEditSaving]     = useState(false);
+  const [editError, setEditError]       = useState<string | null>(null);
+
+  // Delete visit
+  const [deleteVisitId, setDeleteVisitId] = useState<number | null>(null);
+
+  // Expand visit cards (for tap-to-reveal edit/delete on mobile)
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  // Edit salon details
+  const [editSalonOpen, setEditSalonOpen] = useState(false);
 
   async function fetchData() {
     setLoading(true);
@@ -182,7 +284,6 @@ export default function SalonPage() {
   function handleAddAppend(field: keyof VisitForm, text: string) {
     setAddForm((prev) => ({ ...prev, [field]: prev[field] ? prev[field] + " " + text : text }));
   }
-
   async function handleAddVisit(e: React.FormEvent) {
     e.preventDefault();
     if (!addForm.visit_date) return;
@@ -198,26 +299,23 @@ export default function SalonPage() {
     });
     setAddSaving(false);
     if (error) { setAddError("שגיאה בשמירה. נסה שוב."); return; }
-    setAddForm({ ...emptyVisitForm, visit_date: today });
+    setAddForm(emptyVisitForm());
     setAddOpen(false);
     fetchData();
   }
 
-  /* Edit */
-  function openEditVisit(visit: Visit, e: React.MouseEvent) {
-    e.stopPropagation();
+  /* Edit visit */
+  function openEditVisit(visit: Visit) {
     setEditingVisit(visit);
     setEditForm(visitToForm(visit));
     setEditError(null);
   }
-
   function handleEditChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     setEditForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
   function handleEditAppend(field: keyof VisitForm, text: string) {
     setEditForm((prev) => ({ ...prev, [field]: prev[field] ? prev[field] + " " + text : text }));
   }
-
   async function handleEditVisit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingVisit) return;
@@ -232,12 +330,10 @@ export default function SalonPage() {
     }).eq("id", editingVisit.id);
     setEditSaving(false);
     if (error) { setEditError("שגיאה בשמירה. נסה שוב."); return; }
-    // Optimistic update
     setVisits((prev) =>
       prev.map((v) =>
         v.id === editingVisit.id
-          ? {
-              ...v,
+          ? { ...v,
               visit_date: editForm.visit_date,
               deal_amount: editForm.deal_amount ? Number(editForm.deal_amount) : null,
               items_sold: editForm.items_sold.trim() || null,
@@ -250,13 +346,26 @@ export default function SalonPage() {
     setEditingVisit(null);
   }
 
-  /* Delete */
-  async function handleDeleteVisit(visitId: number) {
-    await supabase.from("visits").delete().eq("id", visitId);
-    setVisits((prev) => prev.filter((v) => v.id !== visitId));
+  /* Delete visit */
+  async function confirmDeleteVisit() {
+    if (deleteVisitId === null) return;
+    const vid = deleteVisitId;
+    setDeleteVisitId(null);
+    setExpandedIds((prev) => { const n = new Set(prev); n.delete(vid); return n; });
+    setVisits((prev) => prev.filter((v) => v.id !== vid));
+    await supabase.from("visits").delete().eq("id", vid);
   }
 
-  /* ─── Loading skeleton ─── */
+  /* Expand/collapse */
+  function toggleExpand(visitId: number) {
+    setExpandedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(visitId)) n.delete(visitId); else n.add(visitId);
+      return n;
+    });
+  }
+
+  /* Loading skeleton */
   if (loading) {
     return (
       <div className="flex flex-col gap-4 pt-2">
@@ -281,7 +390,7 @@ export default function SalonPage() {
         className="flex items-center gap-1 text-sm font-semibold text-slate-400 dark:text-indigo-300/60 hover:text-pink-500 dark:hover:text-pink-400 transition-colors w-fit"
       >
         <ChevronRight size={15} strokeWidth={2.5} />
-        סלונים
+        מספרות
       </motion.button>
 
       {/* ── Salon hero card ── */}
@@ -304,9 +413,19 @@ export default function SalonPage() {
             )}
           </div>
 
-          <h1 className="text-2xl font-black tracking-tight text-indigo-950 dark:text-white">
-            {salon?.name}
-          </h1>
+          {/* Salon name + edit button */}
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-black tracking-tight text-indigo-950 dark:text-white flex-1">
+              {salon?.name}
+            </h1>
+            <button
+              onClick={() => setEditSalonOpen(true)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 text-slate-400 dark:text-indigo-400 hover:border-pink-300 hover:text-pink-500 dark:hover:text-pink-400 transition-colors"
+              aria-label="ערוך פרטי מספרה"
+            >
+              <Pencil size={15} strokeWidth={2} />
+            </button>
+          </div>
 
           <div className="mt-3 flex flex-col gap-2 text-sm text-slate-500 dark:text-indigo-300/70">
             <p className="flex items-center gap-2">
@@ -352,9 +471,7 @@ export default function SalonPage() {
                 WhatsApp
               </a>
             ) : (
-              <button disabled
-                className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 dark:bg-indigo-800/40 py-3 text-sm font-bold text-gray-400 dark:text-indigo-500 cursor-not-allowed"
-                title="אין מספר טלפון">
+              <button disabled className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 dark:bg-indigo-800/40 py-3 text-sm font-bold text-gray-400 dark:text-indigo-500 cursor-not-allowed" title="אין מספר טלפון">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" opacity="0.4">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
                   <path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.123 1.528 5.857L.057 23.882a.5.5 0 0 0 .611.611l6.025-1.471A11.955 11.955 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 0 1-5.001-1.368l-.358-.213-3.713.906.924-3.583-.234-.369A9.818 9.818 0 0 1 12 2.182c5.43 0 9.818 4.388 9.818 9.818 0 5.43-4.388 9.818-9.818 9.818z"/>
@@ -363,7 +480,7 @@ export default function SalonPage() {
               </button>
             )}
             <a
-              href={`https://waze.com/ul?q=${encodeURIComponent(`${salon?.street_address ?? ""} ${salon?.city_id ?? ""}`)}`}
+              href={`https://waze.com/ul?q=${encodeURIComponent(salon?.street_address ?? "")}`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 rounded-2xl bg-sky-500 py-3 text-sm font-bold text-white shadow-md shadow-sky-200 dark:shadow-sky-900/30 transition-all hover:bg-sky-600 hover:shadow-lg active:scale-[0.97]"
             >
@@ -379,7 +496,7 @@ export default function SalonPage() {
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.30, delay: 0.12, ease }}
       >
-        <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setAddForm({ ...emptyVisitForm, visit_date: today }); setAddError(null); } }}>
+        <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setAddForm(emptyVisitForm()); setAddError(null); } }}>
           <DialogTrigger render={
             <button className="flex w-full items-center justify-center gap-2 rounded-3xl bg-pink-500 py-3.5 text-sm font-bold text-white shadow-md shadow-pink-200 dark:shadow-pink-900/30 transition-all hover:bg-pink-600 hover:shadow-lg active:scale-[0.98]" />
           }>
@@ -402,16 +519,11 @@ export default function SalonPage() {
         </Dialog>
       </motion.div>
 
-      {/* Edit visit dialog — page-level, opened by pencil */}
-      <Dialog
-        open={!!editingVisit}
-        onOpenChange={(o) => { if (!o) setEditingVisit(null); }}
-      >
+      {/* Edit visit dialog (rich form with mic) */}
+      <Dialog open={!!editingVisit} onOpenChange={(o) => { if (!o) setEditingVisit(null); }}>
         <DialogContent className="max-w-sm rounded-3xl">
           <DialogHeader>
-            <DialogTitle className="text-lg font-black text-indigo-950 dark:text-white">
-              עריכת ביקור
-            </DialogTitle>
+            <DialogTitle className="text-lg font-black text-indigo-950 dark:text-white">עריכת ביקור</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditVisit} className="flex flex-col gap-4 pt-1">
             <VisitFormFields form={editForm} onChange={handleEditChange} onAppend={handleEditAppend} />
@@ -429,9 +541,7 @@ export default function SalonPage() {
         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.26, delay: 0.16, ease }}
       >
-        <h2 className="text-xl font-black tracking-tight text-indigo-950 dark:text-white">
-          היסטוריית ביקורים
-        </h2>
+        <h2 className="text-xl font-black tracking-tight text-indigo-950 dark:text-white">היסטוריית ביקורים</h2>
         <p className="mt-0.5 text-sm text-slate-400 dark:text-indigo-300/60">
           {visits.length === 0 ? "עוד לא תועד ביקור" : `${visits.length} ביקורים מתועדים`}
         </p>
@@ -456,12 +566,13 @@ export default function SalonPage() {
           variants={listVariants} initial="hidden" animate="show"
           className="relative flex flex-col gap-3"
         >
-          {/* Track */}
+          {/* Timeline track */}
           <div className="absolute end-[1.45rem] top-4 bottom-4 w-px bg-pink-100 dark:bg-pink-900/40" />
 
           <AnimatePresence>
             {visits.map((visit, i) => {
-              const chip = urgencyChip(visit.visit_date);
+              const chip     = urgencyChip(visit.visit_date);
+              const expanded = expandedIds.has(visit.id);
               return (
                 <motion.div
                   key={visit.id}
@@ -469,51 +580,65 @@ export default function SalonPage() {
                   exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
                   className="group relative flex gap-3"
                 >
-                  {/* Dot */}
+                  {/* Timeline dot */}
                   <div className="relative z-10 ms-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-pink-500 text-[11px] font-black text-white shadow-md shadow-pink-200 dark:shadow-pink-900/40">
                     {visits.length - i}
                   </div>
 
-                  {/* Card */}
+                  {/* Visit card */}
                   <div className={[
-                    "flex-1 w-0 overflow-hidden rounded-3xl bg-white dark:bg-indigo-900/50",
+                    "flex-1 w-0 overflow-hidden rounded-3xl bg-white dark:bg-indigo-900/50 transition-all",
                     i === 0
                       ? "shadow-lg shadow-black/[0.07] ring-2 ring-pink-200 dark:ring-pink-800/50"
                       : "shadow-md shadow-black/[0.05] dark:shadow-black/25",
+                    expanded ? "ring-2 ring-pink-300 dark:ring-pink-700/50" : "",
                   ].join(" ")}>
 
-                    {/* Card header */}
-                    <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3">
+                    {/* Card header — tap to expand */}
+                    <div
+                      className="flex cursor-pointer items-center justify-between gap-2 px-4 pt-4 pb-3"
+                      onClick={() => toggleExpand(visit.id)}
+                    >
                       <p className="font-bold text-sm text-indigo-950 dark:text-white">
                         {formatDate(visit.visit_date)}
                       </p>
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <span className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${chip.classes}`}>
                           <Clock size={9} strokeWidth={2.5} />
                           {chip.label}
                         </span>
-
-                        {/* Edit + Delete — fade in on hover */}
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                        {/* Desktop-only hover buttons */}
+                        <div
+                          className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <button
-                            onClick={(e) => openEditVisit(visit, e)}
+                            onClick={() => openEditVisit(visit)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 dark:text-indigo-600 transition-colors hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-500 dark:hover:text-pink-400"
                             aria-label="ערוך ביקור"
                           >
                             <Pencil size={13} strokeWidth={2} />
                           </button>
-                          <ConfirmDelete
-                            label={formatDate(visit.visit_date)}
-                            onConfirm={() => handleDeleteVisit(visit.id)}
-                          />
+                          <button
+                            onClick={() => setDeleteVisitId(visit.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 dark:text-indigo-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-500"
+                            aria-label="מחק ביקור"
+                          >
+                            <Trash2 size={13} strokeWidth={2} />
+                          </button>
                         </div>
+                        {/* Expand chevron */}
+                        <ChevronLeft
+                          size={14}
+                          strokeWidth={2}
+                          className={`text-slate-300 dark:text-indigo-600 transition-transform ${expanded ? "-rotate-90" : ""}`}
+                        />
                       </div>
                     </div>
 
-                    {/* Card body */}
+                    {/* Card body — visit details */}
                     {(visit.deal_amount != null || visit.items_sold || visit.last_offer_description || visit.notes) && (
                       <div className="flex flex-col gap-2.5 border-t border-gray-100 dark:border-indigo-800/50 px-4 py-3">
-
                         {(visit.deal_amount != null || visit.items_sold) && (
                           <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
                             <Banknote size={15} strokeWidth={1.8} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
@@ -532,7 +657,6 @@ export default function SalonPage() {
                             </div>
                           </div>
                         )}
-
                         {visit.last_offer_description && (
                           <p className="flex items-start gap-2 text-sm text-slate-700 dark:text-indigo-200">
                             <Briefcase size={13} strokeWidth={1.8} className="mt-0.5 shrink-0 text-pink-400" />
@@ -547,12 +671,52 @@ export default function SalonPage() {
                         )}
                       </div>
                     )}
+
+                    {/* Expanded action row — visible on tap (mobile-friendly) */}
+                    {expanded && (
+                      <div className="border-t border-gray-50 dark:border-indigo-800/50 bg-gray-50/50 dark:bg-indigo-950/20 px-4 py-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => { openEditVisit(visit); }}
+                            className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 py-2.5 text-xs font-bold text-slate-600 dark:text-indigo-300"
+                          >
+                            <Pencil size={12} strokeWidth={2} />
+                            ערוך
+                          </button>
+                          <button
+                            onClick={() => setDeleteVisitId(visit.id)}
+                            className="flex items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-900/20 py-2.5 text-xs font-bold text-red-600 dark:text-red-400"
+                          >
+                            <Trash2 size={12} strokeWidth={2} />
+                            מחק
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               );
             })}
           </AnimatePresence>
         </motion.div>
+      )}
+
+      {/* Edit salon bottom-sheet */}
+      {editSalonOpen && salon && (
+        <EditSalonSheet
+          salon={salon}
+          onClose={() => setEditSalonOpen(false)}
+          onSaved={(updated) => { setSalon(updated); setEditSalonOpen(false); }}
+        />
+      )}
+
+      {/* Delete visit confirm dialog */}
+      {deleteVisitId !== null && (
+        <ConfirmDialog
+          message="האם למחוק את הביקור? פעולה זו אינה ניתנת לביטול."
+          onConfirm={confirmDeleteVisit}
+          onCancel={() => setDeleteVisitId(null)}
+        />
       )}
     </div>
   );
