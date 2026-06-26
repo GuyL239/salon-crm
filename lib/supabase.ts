@@ -31,4 +31,5 @@ export type Visit = {
   items_sold: string | null;
   is_completed: boolean;
   visit_time: string | null; // "HH:MM:SS" from PostgreSQL time type
+  reminders: Array<{ date: string; time: string }> | null;
 };

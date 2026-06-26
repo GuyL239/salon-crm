@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, type City } from "@/lib/supabase";
+import { appCache } from "@/lib/cache";
 import { Plus, ChevronLeft, Trash2 } from "lucide-react";
 
 const TINTS = [
@@ -161,18 +162,28 @@ export default function CitiesPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    let alive = true;
+    // Show cached data instantly — no skeleton flash on subsequent visits
+    const cached = appCache.get<City[]>("cities");
+    if (cached) { setCities(cached); setLoading(false); }
+    // Always re-fetch silently to pick up any changes
     supabase.from("cities").select("*").order("name").then(({ data, error }) => {
-      if (error) setFetchError(error.message);
-      else setCities(data ?? []);
+      if (!alive) return;
+      if (error) { if (!cached) setFetchError(error.message); }
+      else { setCities(data ?? []); appCache.set("cities", data ?? []); }
       setLoading(false);
     });
+    return () => { alive = false; };
   }, []);
 
   async function handleDelete(cityId: number): Promise<string | null> {
     const { error } = await supabase.from("cities").delete().eq("id", cityId);
     if (error) return error.message;
-    setCities((prev) => prev.filter((c) => c.id !== cityId));
+    setCities((prev) => {
+      const next = prev.filter((c) => c.id !== cityId);
+      appCache.set("cities", next); // keep cache coherent
+      return next;
+    });
     return null;
   }
 

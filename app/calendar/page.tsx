@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase, type Visit } from "@/lib/supabase";
+import { appCache } from "@/lib/cache";
 import { NewVisitModal } from "@/components/new-visit-modal";
 import { EditVisitModal } from "@/components/edit-visit-modal";
 import { ChevronLeft, ChevronRight, Plus, X, Clock, Pencil, Trash2 } from "lucide-react";
@@ -89,20 +90,27 @@ export default function CalendarPage() {
   const [deleteVisitId, setDeleteVisitId] = useState<number | null>(null);
   const [expandedIds, setExpandedIds]     = useState<Set<number>>(new Set());
 
-  // Fetch visit dot coverage for the visible month
+  // Fetch visit dot coverage for the visible month (cache-first)
   useEffect(() => {
-    setCalLoading(true);
-    const mm  = String(month + 1).padStart(2, "0");
-    const end = new Date(year, month + 1, 0).getDate();
+    let alive = true;
+    const mm     = String(month + 1).padStart(2, "0");
+    const end    = new Date(year, month + 1, 0).getDate();
+    const cKey   = `cal:dots:${year}:${mm}`;
+    const cached = appCache.get<string[]>(cKey);
+    if (cached) { setVisitDates(new Set(cached)); } else { setCalLoading(true); }
     supabase
       .from("visits")
       .select("visit_date")
       .gte("visit_date", `${year}-${mm}-01`)
       .lte("visit_date", `${year}-${mm}-${String(end).padStart(2, "0")}`)
       .then(({ data }) => {
-        setVisitDates(new Set((data ?? []).map((v) => v.visit_date)));
+        if (!alive) return;
+        const dates = (data ?? []).map((v) => v.visit_date);
+        setVisitDates(new Set(dates));
+        appCache.set(cKey, dates);
         setCalLoading(false);
       });
+    return () => { alive = false; };
   }, [year, month]);
 
   // Fetch full visit details for the selected date
@@ -132,11 +140,16 @@ export default function CalendarPage() {
   function refreshDots() {
     const mm  = String(month + 1).padStart(2, "0");
     const end = new Date(year, month + 1, 0).getDate();
+    const cKey = `cal:dots:${year}:${mm}`;
     supabase
       .from("visits").select("visit_date")
       .gte("visit_date", `${year}-${mm}-01`)
       .lte("visit_date", `${year}-${mm}-${String(end).padStart(2, "0")}`)
-      .then(({ data }) => setVisitDates(new Set((data ?? []).map((v) => v.visit_date))));
+      .then(({ data }) => {
+        const dates = (data ?? []).map((v) => v.visit_date);
+        setVisitDates(new Set(dates));
+        appCache.set(cKey, dates);
+      });
   }
 
   function handleNewVisitSaved() {

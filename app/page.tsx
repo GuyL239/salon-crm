@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase, type City, type Salon, type Visit } from "@/lib/supabase";
+import { appCache } from "@/lib/cache";
 import { NewVisitModal } from "@/components/new-visit-modal";
 import {
   MapPin, Plus, Check, Phone, Navigation2,
@@ -142,14 +143,20 @@ export default function HomePage() {
   const [deleteVisitId, setDeleteVisitId] = useState<number | null>(null);
   const [showNewVisit, setShowNewVisit] = useState(false);
 
-  // Load cities + persisted filter
+  // Load cities (cache-first) + persisted filter
   useEffect(() => {
+    let alive = true;
+    const cached = appCache.get<City[]>("cities");
+    if (cached) setCities(cached);
     supabase.from("cities").select("*").order("name").then(({ data }) => {
-      if (data) setCities(data);
+      if (!alive || !data) return;
+      setCities(data);
+      appCache.set("cities", data);
     });
     const saved = localStorage.getItem("shkedia_city");
     if (saved === "all") setCityFilter("all");
     else if (saved) setCityFilter(Number(saved));
+    return () => { alive = false; };
   }, []);
 
   // ── Agenda query: visits-first ────────────────────────────────────────────

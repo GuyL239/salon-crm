@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { X, Plus, Bell } from "lucide-react";
 import { supabase, type City, type Salon } from "@/lib/supabase";
+
+type Reminder = { date: string; time: string };
 
 interface Props {
   defaultDate?: string;
@@ -12,16 +14,20 @@ interface Props {
 }
 
 export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: Props) {
-  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const today = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
 
-  const [cities, setCities]   = useState<City[]>([]);
-  const [salons, setSalons]   = useState<Salon[]>([]);
-  const [cityId, setCityId]   = useState<number | "">(defaultCityId ?? "");
-  const [salonId, setSalonId] = useState<number | "">("");
-  const [date, setDate]       = useState(defaultDate ?? today);
-  const [time, setTime]       = useState("09:00");
-  const [saving, setSaving]   = useState(false);
-  const [err, setErr]         = useState<string | null>(null);
+  const [cities, setCities]     = useState<City[]>([]);
+  const [salons, setSalons]     = useState<Salon[]>([]);
+  const [cityId, setCityId]     = useState<number | "">(defaultCityId ?? "");
+  const [salonId, setSalonId]   = useState<number | "">("");
+  const [date, setDate]         = useState(defaultDate ?? today);
+  const [time, setTime]         = useState("09:00");
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [saving, setSaving]     = useState(false);
+  const [err, setErr]           = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("cities").select("*").order("name").then(({ data }) => {
@@ -39,6 +45,18 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
       .then(({ data }) => { setSalons(data ?? []); setSalonId(""); });
   }, [cityId]);
 
+  function addReminder() {
+    setReminders(prev => [...prev, { date, time: "09:00" }]);
+  }
+
+  function updateReminder(i: number, field: keyof Reminder, value: string) {
+    setReminders(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
+  }
+
+  function removeReminder(i: number) {
+    setReminders(prev => prev.filter((_, idx) => idx !== i));
+  }
+
   async function handleSave() {
     if (!salonId || !date || !time) { setErr("יש למלא עיר, לקוח, תאריך ושעה"); return; }
     setSaving(true);
@@ -48,6 +66,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
       visit_date: date,
       visit_time: time,
       is_completed: false,
+      reminders: reminders.length > 0 ? reminders : null,
     });
     setSaving(false);
     if (error) { setErr(error.message); return; }
@@ -65,7 +84,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-8 shadow-2xl"
+        className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-8 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drag handle */}
@@ -81,7 +100,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
           </button>
         </div>
 
-        <div className="flex flex-col gap-3 mb-5">
+        <div className="flex flex-col gap-3 mb-4">
           {/* City */}
           <div>
             <label className={labelCls}>עיר</label>
@@ -97,7 +116,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
             </select>
           </div>
 
-          {/* Salon / Client — filtered by city */}
+          {/* Salon — filtered by city */}
           <div>
             <label className={labelCls}>לקוח / סלון</label>
             <select
@@ -134,6 +153,57 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
                 className={inputCls}
               />
             </div>
+          </div>
+        </div>
+
+        {/* ── Reminders section ── */}
+        <div className="mb-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-indigo-400">
+              <Bell size={12} strokeWidth={2.5} />
+              תזכורות
+            </label>
+            <button
+              onClick={addReminder}
+              className="flex items-center gap-1 rounded-lg bg-pink-50 dark:bg-pink-950/40 px-2.5 py-1 text-xs font-bold text-pink-500 dark:text-pink-400"
+            >
+              <Plus size={11} strokeWidth={2.5} />
+              הוסף תזכורת
+            </button>
+          </div>
+
+          {reminders.length === 0 && (
+            <p className="text-center py-3 text-xs text-slate-400 dark:text-indigo-500 border border-dashed border-gray-200 dark:border-indigo-700 rounded-xl">
+              אין תזכורות מוגדרות
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {reminders.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-indigo-700 bg-gray-50 dark:bg-indigo-800/40 px-3 py-2">
+                <Bell size={12} strokeWidth={2} className="shrink-0 text-pink-400" />
+                <input
+                  type="date"
+                  dir="ltr"
+                  value={r.date}
+                  onChange={(e) => updateReminder(i, "date", e.target.value)}
+                  className="flex-1 bg-transparent text-xs text-slate-700 dark:text-indigo-200 outline-none min-w-0"
+                />
+                <input
+                  type="time"
+                  dir="ltr"
+                  value={r.time}
+                  onChange={(e) => updateReminder(i, "time", e.target.value)}
+                  className="w-20 bg-transparent text-xs text-slate-700 dark:text-indigo-200 outline-none"
+                />
+                <button
+                  onClick={() => removeReminder(i)}
+                  className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20 text-red-400"
+                >
+                  <X size={11} strokeWidth={2.5} />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

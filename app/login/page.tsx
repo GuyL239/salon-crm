@@ -50,7 +50,7 @@ export default function LoginPage() {
   }
 
   const inputBase =
-    "w-full rounded-2xl border bg-gray-50 dark:bg-indigo-800/40 px-4 py-3.5 text-sm text-slate-900 dark:text-white outline-none transition-colors placeholder:text-slate-400 dark:placeholder:text-indigo-400";
+    "w-full rounded-2xl border bg-gray-50 dark:bg-indigo-800/40 px-4 py-3.5 text-sm text-slate-900 dark:text-white outline-none transition-colors placeholder:text-slate-500 dark:placeholder:text-indigo-300 text-right";
   const inputIdle   = "border-gray-200 dark:border-indigo-700 focus:border-pink-400 dark:focus:border-pink-500";
   const inputError  = "border-red-300 dark:border-red-700 focus:border-red-400";
 
@@ -66,9 +66,6 @@ export default function LoginPage() {
           <p className="text-3xl font-black tracking-tight leading-none">
             <span className="text-pink-500">Shaked</span>
             <span className="text-slate-900 dark:text-white">ia</span>
-          </p>
-          <p className="text-sm text-slate-400 dark:text-indigo-400">
-            ניהול סלונים · גוש דן
           </p>
         </div>
 
@@ -91,7 +88,7 @@ export default function LoginPage() {
                 className="absolute top-1/2 -translate-y-1/2 end-3.5 text-slate-300 dark:text-indigo-500 pointer-events-none"
               />
               <input
-                dir="ltr"
+                dir="rtl"
                 type="email"
                 autoComplete="email"
                 placeholder="כתובת אימייל"
@@ -99,7 +96,6 @@ export default function LoginPage() {
                 onChange={(e) => { setEmail(e.target.value); setError(null); }}
                 required
                 className={`${inputBase} ${error ? inputError : inputIdle} pe-10`}
-                style={{ direction: "ltr", textAlign: "left" }}
               />
             </div>
 
@@ -111,7 +107,7 @@ export default function LoginPage() {
                 className="absolute top-1/2 -translate-y-1/2 end-3.5 text-slate-300 dark:text-indigo-500 pointer-events-none"
               />
               <input
-                dir="ltr"
+                dir="rtl"
                 type={showPw ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="סיסמה"
@@ -119,7 +115,6 @@ export default function LoginPage() {
                 onChange={(e) => { setPassword(e.target.value); setError(null); }}
                 required
                 className={`${inputBase} ${error ? inputError : inputIdle} pe-10 ps-10`}
-                style={{ direction: "ltr", textAlign: "left" }}
               />
               <button
                 type="button"
