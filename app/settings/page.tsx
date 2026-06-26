@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { supabase } from "@/lib/supabase";
 import {
   Sun, Moon, Bell, Lock, Fingerprint, Info, LogOut, CalendarDays, ChevronLeft,
 } from "lucide-react";
@@ -45,11 +47,20 @@ function SettingsRow({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { theme, setTheme }               = useTheme();
   const [notifications, setNotifications] = useState(true);
   const [reminders, setReminders]         = useState(true);
   const [biometric, setBiometric]         = useState(false);
+  const [loggingOut, setLoggingOut]       = useState(false);
   const isDark = theme === "dark";
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    await supabase.auth.signOut();
+    router.refresh();
+    router.push("/login");
+  }
 
   return (
     <>
@@ -100,9 +111,17 @@ export default function SettingsPage() {
           right={<span className="text-xs text-slate-400 dark:text-indigo-500">1.0.0</span>} />
       </div>
 
-      <button className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-red-100 dark:border-red-900/30 bg-white dark:bg-indigo-900/50 py-3.5 text-sm font-bold text-red-600 dark:text-red-400">
-        <LogOut size={16} strokeWidth={2} />
-        התנתק
+      <button
+        onClick={handleLogout}
+        disabled={loggingOut}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-red-100 dark:border-red-900/30 bg-white dark:bg-indigo-900/50 py-3.5 text-sm font-bold text-red-600 dark:text-red-400 disabled:opacity-60 transition-opacity"
+      >
+        {loggingOut ? (
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-500" />
+        ) : (
+          <LogOut size={16} strokeWidth={2} />
+        )}
+        {loggingOut ? "מתנתק..." : "התנתק"}
       </button>
     </>
   );
