@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
 
   const [cities, setCities]   = useState<City[]>([]);
   const [salons, setSalons]   = useState<Salon[]>([]);

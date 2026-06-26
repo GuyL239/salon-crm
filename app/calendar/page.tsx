@@ -5,7 +5,11 @@ import { supabase, type Visit } from "@/lib/supabase";
 import { NewVisitModal } from "@/components/new-visit-modal";
 import { ChevronLeft, ChevronRight, Plus, X, Clock } from "lucide-react";
 
-const TODAY = new Date().toISOString().split("T")[0];
+// Returns the browser-local date — avoids returning yesterday in Israel after midnight
+function getLocalToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 const HE_MONTHS = [
   "ינואר","פברואר","מרץ","אפריל","מאי","יוני",
@@ -36,7 +40,7 @@ export default function CalendarPage() {
   const [visitDates, setVisitDates]   = useState<Set<string>>(new Set());
   const [calLoading, setCalLoading]   = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState<string | null>(TODAY);
+  const [selectedDate, setSelectedDate] = useState<string | null>(getLocalToday);
   const [dateVisits, setDateVisits]     = useState<VisitWithSalon[]>([]);
   const [dateLoading, setDateLoading]   = useState(false);
 
@@ -137,7 +141,7 @@ export default function CalendarPage() {
             const d       = i + 1;
             const mm      = String(month + 1).padStart(2, "0");
             const dateStr = `${year}-${mm}-${String(d).padStart(2, "0")}`;
-            const isToday    = dateStr === TODAY;
+            const isToday    = dateStr === getLocalToday();
             const isSelected = dateStr === selectedDate;
             const hasVisit   = visitDates.has(dateStr);
             return (
@@ -248,7 +252,7 @@ export default function CalendarPage() {
       {/* New visit modal — date pre-filled to selected date */}
       {showNewVisit && (
         <NewVisitModal
-          defaultDate={selectedDate ?? TODAY}
+          defaultDate={selectedDate ?? getLocalToday()}
           onClose={() => setShowNewVisit(false)}
           onSaved={handleNewVisitSaved}
         />

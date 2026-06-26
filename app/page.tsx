@@ -9,18 +9,31 @@ import {
   Package, StickyNote, Pencil, X, Clock,
 } from "lucide-react";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Midnight-safe local date ─────────────────────────────────────────────────
+// new Date().toISOString() is UTC — it returns yesterday in Israel after midnight.
+// Always format using local date parts instead.
+function getLocalToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
-const TODAY = new Date().toISOString().split("T")[0];
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 // null = nothing chosen, "all" = all cities, number = specific city id
 type CityFilter = number | "all" | null;
 
-type SalonWithMeta = Salon & {
-  todayVisit: Visit | null;
+// One agenda row = one scheduled visit + the salon it belongs to + the last
+// previous visit (for product/notes context).  Only salons with an actual
+// visit for agendaDate are included — new clients without a visit are hidden.
+type AgendaItem = {
+  visit: Visit;
+  salon: Salon;
   lastVisit: Visit | null;
   expanded: boolean;
 };
+
+// Shape returned by "visits!inner salons" join
+type VisitWithSalonJoin = Visit & { salons: Salon };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,30 +53,38 @@ function fmtTime(t: string | null | undefined) {
   return t.substring(0, 5); // "HH:MM:SS" → "HH:MM"
 }
 
-// ─── Edit Salon Modal ─────────────────────────────────────────────────────────
+// ─── Edit Item Modal (salon fields + visit time) ──────────────────────────────
 
-function EditSalonModal({
-  salon, onClose, onSaved,
+function EditItemModal({
+  item, onClose, onSaved,
 }: {
-  salon: Salon;
+  item: AgendaItem;
   onClose: () => void;
-  onSaved: (id: number, phone: string | null, address: string) => void;
+  onSaved: (salonId: number, visitId: number, phone: string | null, address: string, visitTime: string | null) => void;
 }) {
-  const [phone, setPhone]     = useState(salon.phone_number ?? "");
-  const [address, setAddress] = useState(salon.street_address);
-  const [saving, setSaving]   = useState(false);
-  const [err, setErr]         = useState<string | null>(null);
+  const [phone, setPhone]     = useState(item.salon.phone_number ?? "");
+  const [address, setAddress] = useState(item.salon.street_address);
+  const [time, setTime]       = useState(
+    item.visit.visit_time ? item.visit.visit_time.substring(0, 5) : ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState<string | null>(null);
 
   async function handleSave() {
     setSaving(true);
     setErr(null);
-    const { error } = await supabase
-      .from("salons")
-      .update({ phone_number: phone.trim() || null, street_address: address.trim() })
-      .eq("id", salon.id);
+    const [salonRes, visitRes] = await Promise.all([
+      supabase.from("salons")
+        .update({ phone_number: phone.trim() || null, street_address: address.trim() })
+        .eq("id", item.salon.id),
+      supabase.from("visits")
+        .update({ visit_time: time.trim() || null })
+        .eq("id", item.visit.id),
+    ]);
     setSaving(false);
-    if (error) { setErr(error.message); return; }
-    onSaved(salon.id, phone.trim() || null, address.trim());
+    if (salonRes.error) { setErr(salonRes.error.message); return; }
+    if (visitRes.error) { setErr(visitRes.error.message); return; }
+    onSaved(item.salon.id, item.visit.id, phone.trim() || null, address.trim(), time.trim() || null);
   }
 
   const inputCls =
@@ -74,12 +95,12 @@ function EditSalonModal({
       <div className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200 dark:bg-indigo-700" />
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-black text-slate-900 dark:text-white">עריכת פרטי לקוח</h3>
+          <h3 className="text-lg font-black text-slate-900 dark:text-white">עריכת ביקור</h3>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-indigo-800 text-slate-400">
             <X size={15} strokeWidth={2.5} />
           </button>
         </div>
-        <p className="mb-4 truncate text-sm font-bold text-pink-500">{salon.name}</p>
+        <p className="mb-4 truncate text-sm font-bold text-pink-500">{item.salon.name}</p>
         <div className="flex flex-col gap-3 mb-5">
           <div>
             <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">כתובת</label>
@@ -89,8 +110,12 @@ function EditSalonModal({
             <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">מספר טלפון</label>
             <input dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">שעת ביקור</label>
+            <input dir="ltr" type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+          </div>
         </div>
-        {err && <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-mono text-red-600">{err}</p>}
+        {err && <p className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs font-mono text-red-600 dark:text-red-400">{err}</p>}
         <div className="grid grid-cols-2 gap-3">
           <button onClick={onClose} className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300">ביטול</button>
           <button onClick={handleSave} disabled={saving} className="rounded-2xl bg-pink-500 py-3 text-sm font-bold text-white disabled:opacity-60">
@@ -105,13 +130,15 @@ function EditSalonModal({
 // ─── Home Page ────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const [cities, setCities]             = useState<City[]>([]);
-  const [cityFilter, setCityFilter]     = useState<CityFilter>(null);
-  const [salons, setSalons]             = useState<SalonWithMeta[]>([]);
-  const [loading, setLoading]           = useState(false);
-  const [showPicker, setShowPicker]     = useState(false);
-  const [fetchError, setFetchError]     = useState<string | null>(null);
-  const [editingSalon, setEditingSalon] = useState<SalonWithMeta | null>(null);
+  const [cities, setCities]           = useState<City[]>([]);
+  const [cityFilter, setCityFilter]   = useState<CityFilter>(null);
+  // Lazy init — computed fresh from the browser's local clock, not a stale module constant
+  const [agendaDate]                  = useState(getLocalToday);
+  const [agenda, setAgenda]           = useState<AgendaItem[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [showPicker, setShowPicker]   = useState(false);
+  const [fetchError, setFetchError]   = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
   const [showNewVisit, setShowNewVisit] = useState(false);
 
   // Load cities + persisted filter
@@ -124,28 +151,52 @@ export default function HomePage() {
     else if (saved) setCityFilter(Number(saved));
   }, []);
 
-  const loadSalons = useCallback(async (filter: number | "all") => {
+  // ── Agenda query: visits-first ────────────────────────────────────────────
+  // Only salons that have a scheduled visit for agendaDate appear.
+  // Clients without a visit today are invisible here by design.
+  const loadAgenda = useCallback(async (filter: number | "all", date: string) => {
     setLoading(true);
     setFetchError(null);
     try {
-      const q =
-        filter === "all"
-          ? supabase.from("salons").select("*").order("name")
-          : supabase.from("salons").select("*").eq("city_id", filter).order("name");
+      const { data: raw, error } = await supabase
+        .from("visits")
+        .select("*, salons!inner(id, name, owner_name, street_address, phone_number, city_id)")
+        .eq("visit_date", date)
+        .order("visit_time", { ascending: true, nullsFirst: false });
 
-      const [salonsRes, visitsRes] = await Promise.all([
-        q,
-        supabase.from("visits").select("*").order("visit_date", { ascending: false }),
-      ]);
-      if (salonsRes.error) throw new Error(salonsRes.error.message);
-      const all: Visit[] = visitsRes.data ?? [];
-      const enriched: SalonWithMeta[] = (salonsRes.data ?? []).map((s) => ({
-        ...s,
-        todayVisit: all.find((v) => v.salon_id === s.id && v.visit_date === TODAY) ?? null,
-        lastVisit:  all.find((v) => v.salon_id === s.id && v.visit_date !== TODAY) ?? null,
-        expanded: false,
-      }));
-      setSalons(enriched);
+      if (error) throw new Error(error.message);
+
+      // Filter by city in JS — more reliable than PostgREST nested column filter
+      const rows = (raw as VisitWithSalonJoin[] ?? [])
+        .filter((v) => filter === "all" || v.salons.city_id === filter);
+
+      if (rows.length === 0) { setAgenda([]); return; }
+
+      // Fetch the most recent previous visit per salon for product/notes context
+      const salonIds = [...new Set(rows.map((v) => v.salon_id))];
+      const { data: prev } = await supabase
+        .from("visits")
+        .select("*")
+        .in("salon_id", salonIds)
+        .neq("visit_date", date)
+        .order("visit_date", { ascending: false });
+
+      const lastByS = new Map<number, Visit>();
+      for (const v of (prev ?? [])) {
+        if (!lastByS.has(v.salon_id)) lastByS.set(v.salon_id, v);
+      }
+
+      setAgenda(
+        rows.map((v) => {
+          const { salons, ...visitOnly } = v as VisitWithSalonJoin;
+          return {
+            visit: visitOnly as Visit,
+            salon: salons,
+            lastVisit: lastByS.get(v.salon_id) ?? null,
+            expanded: false,
+          };
+        })
+      );
     } catch (err: any) {
       setFetchError(err?.message ?? "שגיאה בטעינה");
     } finally {
@@ -154,9 +205,9 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (cityFilter !== null) loadSalons(cityFilter);
-    else setSalons([]);
-  }, [cityFilter, loadSalons]);
+    if (cityFilter !== null) loadAgenda(cityFilter, agendaDate);
+    else setAgenda([]);
+  }, [cityFilter, agendaDate, loadAgenda]);
 
   function selectFilter(f: CityFilter) {
     setCityFilter(f);
@@ -164,45 +215,44 @@ export default function HomePage() {
     setShowPicker(false);
   }
 
-  function toggleExpand(id: number) {
-    setSalons((prev) => prev.map((s) => (s.id === id ? { ...s, expanded: !s.expanded } : s)));
+  function toggleExpand(visitId: number) {
+    setAgenda((prev) => prev.map((a) => (a.visit.id === visitId ? { ...a, expanded: !a.expanded } : a)));
   }
 
-  async function toggleCheck(salon: SalonWithMeta) {
-    const willComplete = !(salon.todayVisit?.is_completed ?? false);
-    setSalons((prev) =>
-      prev.map((s) => {
-        if (s.id !== salon.id) return s;
-        const next: Visit = s.todayVisit
-          ? { ...s.todayVisit, is_completed: willComplete }
-          : { id: -1, salon_id: s.id, visit_date: TODAY, is_completed: true,
-              visit_time: null, last_offer_description: null, notes: null,
-              deal_amount: null, items_sold: null };
-        return { ...s, todayVisit: next };
+  async function toggleCheck(item: AgendaItem) {
+    const willComplete = !item.visit.is_completed;
+    // Optimistic update
+    setAgenda((prev) =>
+      prev.map((a) =>
+        a.visit.id === item.visit.id ? { ...a, visit: { ...a.visit, is_completed: willComplete } } : a
+      )
+    );
+    await supabase.from("visits").update({ is_completed: willComplete }).eq("id", item.visit.id);
+  }
+
+  function handleItemSaved(
+    salonId: number, visitId: number,
+    phone: string | null, address: string, visitTime: string | null
+  ) {
+    setAgenda((prev) =>
+      prev.map((a) => {
+        if (a.visit.id !== visitId) return a;
+        return {
+          ...a,
+          salon: { ...a.salon, phone_number: phone, street_address: address },
+          visit: { ...a.visit, visit_time: visitTime },
+        };
       })
     );
-    if (salon.todayVisit) {
-      await supabase.from("visits").update({ is_completed: willComplete }).eq("id", salon.todayVisit.id);
-    } else {
-      const { data } = await supabase
-        .from("visits").insert({ salon_id: salon.id, visit_date: TODAY, is_completed: true })
-        .select().single();
-      if (data) setSalons((prev) => prev.map((s) => (s.id === salon.id ? { ...s, todayVisit: data } : s)));
-    }
+    setEditingItem(null);
   }
 
-  function handleSalonSaved(id: number, phone: string | null, address: string) {
-    setSalons((prev) => prev.map((s) => (s.id === id ? { ...s, phone_number: phone, street_address: address } : s)));
-    setEditingSalon(null);
-  }
-
-  // Determine current city id for the New Visit modal default
-  const defaultCityId = typeof cityFilter === "number" ? cityFilter : undefined;
-  const filterLabel = cityFilter === "all" ? "כל הערים"
+  const defaultCityId  = typeof cityFilter === "number" ? cityFilter : undefined;
+  const filterLabel    = cityFilter === "all" ? "כל הערים"
     : cityFilter !== null ? (cities.find((c) => c.id === cityFilter)?.name ?? "") : null;
 
-  const completed = salons.filter((s) => s.todayVisit?.is_completed).length;
-  const total     = salons.length;
+  const completed = agenda.filter((a) => a.visit.is_completed).length;
+  const total     = agenda.length;
   const pct       = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
@@ -268,7 +318,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* New visit button — opens modal */}
+      {/* New visit button */}
       {cityFilter !== null && (
         <div className="mb-4">
           <button
@@ -297,7 +347,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty — no city selected */}
       {cityFilter === null && !loading && (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-pink-50 dark:bg-pink-950/30">
@@ -310,19 +360,31 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Salon cards */}
-      {!loading && salons.length > 0 && (
+      {/* Empty — city selected but no visits today */}
+      {!loading && cityFilter !== null && agenda.length === 0 && !fetchError && (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-50 dark:bg-indigo-800/30">
+            <Clock size={28} className="text-indigo-300 dark:text-indigo-500" />
+          </div>
+          <p className="font-black text-slate-900 dark:text-white">אין ביקורים מתוכננים להיום</p>
+          <p className="text-sm text-slate-400 dark:text-indigo-400">לחץ על "ביקור חדש" להוספת ביקור</p>
+        </div>
+      )}
+
+      {/* Agenda cards */}
+      {!loading && agenda.length > 0 && (
         <div className="flex flex-col gap-2.5">
-          {salons.map((salon) => {
-            const isCompleted = salon.todayVisit?.is_completed ?? false;
-            const time = fmtTime(salon.todayVisit?.visit_time);
+          {agenda.map((item) => {
+            const { visit, salon, lastVisit, expanded } = item;
+            const isCompleted = visit.is_completed;
+            const time = fmtTime(visit.visit_time);
             return (
               <div
-                key={salon.id}
+                key={visit.id}
                 className={`overflow-hidden rounded-3xl border bg-white dark:bg-indigo-900/50 shadow-sm shadow-black/[0.04] dark:shadow-black/20 transition-all ${
                   isCompleted
                     ? "border-gray-100 dark:border-indigo-800/30 opacity-60"
-                    : salon.expanded
+                    : expanded
                     ? "border-pink-300 dark:border-pink-800/50"
                     : "border-gray-100 dark:border-indigo-800/30"
                 }`}
@@ -330,12 +392,11 @@ export default function HomePage() {
                 {/* Card header */}
                 <div
                   className="flex cursor-pointer items-center gap-3 p-3.5"
-                  onClick={() => toggleExpand(salon.id)}
+                  onClick={() => toggleExpand(visit.id)}
                 >
-                  {/* Checkbox */}
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); toggleCheck(salon); }}
+                    onClick={(e) => { e.stopPropagation(); toggleCheck(item); }}
                     aria-label={isCompleted ? "סמן כלא הושלם" : "סמן כהושלם"}
                     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-all ${
                       isCompleted ? "border-pink-500 bg-pink-500 text-white" : "border-gray-200 dark:border-indigo-700"
@@ -344,12 +405,10 @@ export default function HomePage() {
                     {isCompleted && <Check size={12} strokeWidth={3} />}
                   </button>
 
-                  {/* Avatar */}
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-pink-50 dark:bg-pink-950/30 text-sm font-black text-pink-600 dark:text-pink-300">
                     {salon.name.charAt(0)}
                   </div>
 
-                  {/* Name + owner */}
                   <div className="min-w-0 flex-1">
                     <p className={`truncate text-sm font-bold ${isCompleted ? "line-through text-slate-400 dark:text-indigo-500" : "text-slate-900 dark:text-white"}`}>
                       {salon.name}
@@ -359,7 +418,6 @@ export default function HomePage() {
                     </p>
                   </div>
 
-                  {/* Time badge + expand arrow */}
                   <div className="flex shrink-0 items-center gap-1.5">
                     {time ? (
                       <span className="flex items-center gap-1 rounded-xl bg-indigo-50 dark:bg-indigo-800/50 px-2.5 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-300" dir="ltr">
@@ -372,13 +430,13 @@ export default function HomePage() {
                     <ChevronLeft
                       size={15}
                       strokeWidth={2}
-                      className={`text-slate-300 dark:text-indigo-600 transition-transform ${salon.expanded ? "-rotate-90" : ""}`}
+                      className={`text-slate-300 dark:text-indigo-600 transition-transform ${expanded ? "-rotate-90" : ""}`}
                     />
                   </div>
                 </div>
 
-                {/* Expanded detail panel */}
-                {salon.expanded && (
+                {/* Expanded panel */}
+                {expanded && (
                   <div className="border-t border-gray-50 dark:border-indigo-800/50 bg-gray-50/50 dark:bg-indigo-950/20 px-4 py-3">
                     <div className="mb-3 flex flex-col gap-2">
                       {salon.street_address && (
@@ -393,16 +451,16 @@ export default function HomePage() {
                           <span dir="ltr">{salon.phone_number}</span>
                         </div>
                       )}
-                      {salon.lastVisit?.items_sold && (
+                      {lastVisit?.items_sold && (
                         <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-indigo-300/70">
                           <Package size={12} className="mt-0.5 shrink-0 text-pink-400" />
-                          <span><strong>אחרון: </strong>{salon.lastVisit.items_sold}</span>
+                          <span><strong>אחרון: </strong>{lastVisit.items_sold}</span>
                         </div>
                       )}
-                      {salon.lastVisit?.notes && (
+                      {lastVisit?.notes && (
                         <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-indigo-300/70">
                           <StickyNote size={12} className="mt-0.5 shrink-0 text-pink-400" />
-                          <span>{salon.lastVisit.notes}</span>
+                          <span>{lastVisit.notes}</span>
                         </div>
                       )}
                     </div>
@@ -436,7 +494,7 @@ export default function HomePage() {
                         Waze
                       </a>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setEditingSalon(salon); }}
+                        onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
                         className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 py-2.5 text-xs font-bold text-slate-600 dark:text-indigo-300"
                       >
                         <Pencil size={12} strokeWidth={2} />
@@ -452,23 +510,23 @@ export default function HomePage() {
       )}
 
       {/* Edit modal */}
-      {editingSalon && (
-        <EditSalonModal
-          salon={editingSalon}
-          onClose={() => setEditingSalon(null)}
-          onSaved={handleSalonSaved}
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSaved={handleItemSaved}
         />
       )}
 
       {/* New visit modal */}
       {showNewVisit && (
         <NewVisitModal
-          defaultDate={TODAY}
+          defaultDate={agendaDate}
           defaultCityId={defaultCityId}
           onClose={() => setShowNewVisit(false)}
           onSaved={() => {
             setShowNewVisit(false);
-            if (cityFilter !== null) loadSalons(cityFilter);
+            if (cityFilter !== null) loadAgenda(cityFilter, agendaDate);
           }}
         />
       )}
