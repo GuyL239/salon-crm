@@ -38,8 +38,8 @@ export function MicButton({ onResult, onInterim, disabled }: Props) {
 
     const rec = new SpeechRecognitionCtor();
     rec.lang = "he-IL";
+    rec.continuous = true;
     rec.interimResults = true;
-    rec.continuous = false; // auto-stop after a pause
     recRef.current = rec;
 
     rec.onresult = (e: any) => {
