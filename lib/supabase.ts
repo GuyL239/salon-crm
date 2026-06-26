@@ -27,4 +27,5 @@ export type Visit = {
   notes: string | null;
   deal_amount: number | null;
   items_sold: string | null;
+  is_completed: boolean;
 };

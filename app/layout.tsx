@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Heebo } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { NavTabs } from "@/components/nav-tabs";
 import "./globals.css";
 
 const heebo = Heebo({
@@ -66,7 +65,6 @@ export default function RootLayout({
 
                 {/* Nav + Actions */}
                 <div className="flex items-center gap-2">
-                  <NavTabs />
                   <ThemeToggle />
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-900/40 text-xs font-bold text-pink-600 dark:text-pink-300">
                     נ
