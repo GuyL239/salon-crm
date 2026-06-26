@@ -1,6 +1,6 @@
 {
-  "name": "Salon CRM",
-  "short_name": "CRM",
+  "name": "shkedia",
+  "short_name": "shkedia",
   "description": "ניהול סלונים ולקוחות בגוש דן",
   "start_url": "/",
   "display": "standalone",

@@ -12,14 +12,14 @@ const heebo = Heebo({
 });
 
 export const metadata: Metadata = {
-  title: "Salon CRM",
+  title: "shkedia",
   description: "ניהול סלונים ולקוחות",
   manifest: "/manifest.json",
   themeColor: "#ec4899",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Salon CRM",
+    title: "shkedia",
   },
   formatDetection: {
     telephone: false,
@@ -56,7 +56,7 @@ export default function RootLayout({
                   </div>
                   <div>
                     <p className="text-sm font-black tracking-tight text-indigo-950 dark:text-white leading-none">
-                      סלון CRM
+                      shkedia
                     </p>
                     <p className="mt-0.5 text-[10px] font-medium text-slate-400 dark:text-indigo-300/60 leading-none">
                       גוש דן
