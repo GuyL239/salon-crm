@@ -6,7 +6,7 @@ import { NewVisitModal } from "@/components/new-visit-modal";
 import {
   MapPin, Plus, Check, Phone, Navigation2,
   MessageSquare, ChevronDown, ChevronUp, ChevronLeft,
-  Package, StickyNote, Pencil, X, Clock,
+  Package, StickyNote, Pencil, X, Clock, Trash2,
 } from "lucide-react";
 
 // ─── Midnight-safe local date ─────────────────────────────────────────────────
@@ -138,7 +138,8 @@ export default function HomePage() {
   const [loading, setLoading]         = useState(false);
   const [showPicker, setShowPicker]   = useState(false);
   const [fetchError, setFetchError]   = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
+  const [editingItem, setEditingItem]   = useState<AgendaItem | null>(null);
+  const [deleteVisitId, setDeleteVisitId] = useState<number | null>(null);
   const [showNewVisit, setShowNewVisit] = useState(false);
 
   // Load cities + persisted filter
@@ -228,6 +229,14 @@ export default function HomePage() {
       )
     );
     await supabase.from("visits").update({ is_completed: willComplete }).eq("id", item.visit.id);
+  }
+
+  async function confirmDeleteVisit() {
+    if (deleteVisitId === null) return;
+    const id = deleteVisitId;
+    setDeleteVisitId(null);
+    setAgenda((prev) => prev.filter((a) => a.visit.id !== id));
+    await supabase.from("visits").delete().eq("id", id);
   }
 
   function handleItemSaved(
@@ -465,41 +474,54 @@ export default function HomePage() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      {salon.phone_number ? (
+                    <div className="flex flex-col gap-2">
+                      {/* Row 1: communication */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {salon.phone_number ? (
+                          <a
+                            href={waLink(salon.phone_number)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-white"
+                          >
+                            <MessageSquare size={12} strokeWidth={2} />
+                            WhatsApp
+                          </a>
+                        ) : (
+                          <button disabled className="flex cursor-not-allowed items-center justify-center gap-1.5 rounded-xl bg-gray-100 dark:bg-indigo-800/40 py-2.5 text-xs font-bold text-gray-400">
+                            <MessageSquare size={12} strokeWidth={2} />
+                            WhatsApp
+                          </button>
+                        )}
                         <a
-                          href={waLink(salon.phone_number)}
+                          href={wazeLink(salon.street_address)}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-white"
+                          className="flex items-center justify-center gap-1.5 rounded-xl bg-sky-500 py-2.5 text-xs font-bold text-white"
                         >
-                          <MessageSquare size={12} strokeWidth={2} />
-                          WhatsApp
+                          <Navigation2 size={12} strokeWidth={2} />
+                          Waze
                         </a>
-                      ) : (
-                        <button disabled className="flex cursor-not-allowed items-center justify-center gap-1.5 rounded-xl bg-gray-100 dark:bg-indigo-800/40 py-2.5 text-xs font-bold text-gray-400">
-                          <MessageSquare size={12} strokeWidth={2} />
-                          WhatsApp
+                      </div>
+                      {/* Row 2: edit + delete */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
+                          className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 py-2.5 text-xs font-bold text-slate-600 dark:text-indigo-300"
+                        >
+                          <Pencil size={12} strokeWidth={2} />
+                          ערוך
                         </button>
-                      )}
-                      <a
-                        href={wazeLink(salon.street_address)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-sky-500 py-2.5 text-xs font-bold text-white"
-                      >
-                        <Navigation2 size={12} strokeWidth={2} />
-                        Waze
-                      </a>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
-                        className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 py-2.5 text-xs font-bold text-slate-600 dark:text-indigo-300"
-                      >
-                        <Pencil size={12} strokeWidth={2} />
-                        ערוך
-                      </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteVisitId(visit.id); }}
+                          className="flex items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-900/20 py-2.5 text-xs font-bold text-red-600 dark:text-red-400"
+                        >
+                          <Trash2 size={12} strokeWidth={2} />
+                          מחק
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -516,6 +538,38 @@ export default function HomePage() {
           onClose={() => setEditingItem(null)}
           onSaved={handleItemSaved}
         />
+      )}
+
+      {/* Delete visit confirm dialog */}
+      {deleteVisitId !== null && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setDeleteVisitId(null)}
+        >
+          <div
+            className="mx-6 w-full max-w-sm rounded-3xl bg-white dark:bg-indigo-900 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-black text-slate-900 dark:text-white">מחיקת ביקור</h3>
+            <p className="mt-2 text-sm text-slate-500 dark:text-indigo-400">
+              האם למחוק את הביקור? פעולה זו אינה ניתנת לביטול.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setDeleteVisitId(null)}
+                className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={confirmDeleteVisit}
+                className="rounded-2xl bg-red-500 py-3 text-sm font-bold text-white"
+              >
+                מחק
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* New visit modal */}

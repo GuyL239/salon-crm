@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase, type Visit } from "@/lib/supabase";
 import { NewVisitModal } from "@/components/new-visit-modal";
-import { ChevronLeft, ChevronRight, Plus, X, Clock } from "lucide-react";
+import { EditVisitModal } from "@/components/edit-visit-modal";
+import { ChevronLeft, ChevronRight, Plus, X, Clock, Pencil, Trash2 } from "lucide-react";
 
 // Returns the browser-local date — avoids returning yesterday in Israel after midnight
 function getLocalToday(): string {
@@ -32,19 +33,61 @@ function formatSelectedDate(d: string) {
   });
 }
 
+// ─── Inline confirm dialog ────────────────────────────────────────────────────
+
+function ConfirmDialog({
+  message, onConfirm, onCancel,
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="mx-6 w-full max-w-sm rounded-3xl bg-white dark:bg-indigo-900 p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-black text-slate-900 dark:text-white">מחיקת ביקור</h3>
+        <p className="mt-2 text-sm text-slate-500 dark:text-indigo-400">{message}</p>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button
+            onClick={onCancel}
+            className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300"
+          >
+            ביטול
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-2xl bg-red-500 py-3 text-sm font-bold text-white"
+          >
+            מחק
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CalendarPage() {
   const now = new Date();
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
 
-  const [visitDates, setVisitDates]   = useState<Set<string>>(new Set());
-  const [calLoading, setCalLoading]   = useState(false);
+  const [visitDates, setVisitDates] = useState<Set<string>>(new Set());
+  const [calLoading, setCalLoading] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(getLocalToday);
   const [dateVisits, setDateVisits]     = useState<VisitWithSalon[]>([]);
   const [dateLoading, setDateLoading]   = useState(false);
 
-  const [showNewVisit, setShowNewVisit] = useState(false);
+  const [showNewVisit, setShowNewVisit]   = useState(false);
+  const [editingVisit, setEditingVisit]   = useState<VisitWithSalon | null>(null);
+  const [deleteVisitId, setDeleteVisitId] = useState<number | null>(null);
+  const [expandedIds, setExpandedIds]     = useState<Set<number>>(new Set());
 
   // Fetch visit dot coverage for the visible month
   useEffect(() => {
@@ -86,9 +129,7 @@ export default function CalendarPage() {
     else { setMonth(0); setYear((y) => y + 1); }
   }
 
-  function handleNewVisitSaved() {
-    setShowNewVisit(false);
-    // Refresh both dots and date visit list
+  function refreshDots() {
     const mm  = String(month + 1).padStart(2, "0");
     const end = new Date(year, month + 1, 0).getDate();
     supabase
@@ -96,12 +137,41 @@ export default function CalendarPage() {
       .gte("visit_date", `${year}-${mm}-01`)
       .lte("visit_date", `${year}-${mm}-${String(end).padStart(2, "0")}`)
       .then(({ data }) => setVisitDates(new Set((data ?? []).map((v) => v.visit_date))));
+  }
+
+  function handleNewVisitSaved() {
+    setShowNewVisit(false);
+    refreshDots();
     if (selectedDate) {
       supabase
         .from("visits").select("*, salons(name, owner_name)")
         .eq("visit_date", selectedDate).order("visit_time", { ascending: true })
         .then(({ data }) => setDateVisits((data as VisitWithSalon[]) ?? []));
     }
+  }
+
+  function handleEditVisitSaved(updated: Visit) {
+    setEditingVisit(null);
+    setDateVisits((prev) => prev.map((v) => (v.id === updated.id ? { ...v, ...updated } : v)));
+  }
+
+  async function handleDeleteVisit() {
+    if (deleteVisitId === null) return;
+    const id = deleteVisitId;
+    setDeleteVisitId(null);
+    setExpandedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    setDateVisits((prev) => prev.filter((v) => v.id !== id));
+    await supabase.from("visits").delete().eq("id", id);
+    refreshDots();
+  }
+
+  function toggleExpand(visitId: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(visitId)) next.delete(visitId);
+      else next.add(visitId);
+      return next;
+    });
   }
 
   const firstDay    = new Date(year, month, 1).getDay();
@@ -174,7 +244,6 @@ export default function CalendarPage() {
               {formatSelectedDate(selectedDate)}
             </p>
             <div className="flex items-center gap-2">
-              {/* New appointment for this date */}
               <button
                 onClick={() => setShowNewVisit(true)}
                 className="flex items-center gap-1.5 rounded-xl bg-pink-500 px-3 py-1.5 text-xs font-bold text-white"
@@ -209,38 +278,79 @@ export default function CalendarPage() {
           {!dateLoading && dateVisits.length > 0 && (
             <div className="flex flex-col gap-2">
               {dateVisits.map((v) => {
-                const time = fmtTime(v.visit_time);
+                const time     = fmtTime(v.visit_time);
+                const expanded = expandedIds.has(v.id);
                 return (
-                  <div key={v.id} className="flex items-start gap-3 rounded-2xl border border-gray-100 dark:border-indigo-800/30 bg-white dark:bg-indigo-900/50 p-3.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pink-50 dark:bg-pink-950/30 text-sm font-black text-pink-600 dark:text-pink-300">
-                      {v.salons?.name?.charAt(0) ?? "?"}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                        {v.salons?.name ?? "סלון לא ידוע"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-400 dark:text-indigo-400 truncate">
-                        {v.salons?.owner_name}
-                      </p>
-                      {v.items_sold && (
-                        <p className="mt-1 text-xs text-slate-500 dark:text-indigo-300/70 truncate">
-                          {v.items_sold}
+                  <div
+                    key={v.id}
+                    className={`overflow-hidden rounded-2xl border bg-white dark:bg-indigo-900/50 transition-colors ${
+                      expanded
+                        ? "border-pink-300 dark:border-pink-800/50"
+                        : "border-gray-100 dark:border-indigo-800/30"
+                    }`}
+                  >
+                    {/* Card row — click to expand */}
+                    <div
+                      className="flex cursor-pointer items-start gap-3 p-3.5"
+                      onClick={() => toggleExpand(v.id)}
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pink-50 dark:bg-pink-950/30 text-sm font-black text-pink-600 dark:text-pink-300">
+                        {v.salons?.name?.charAt(0) ?? "?"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {v.salons?.name ?? "סלון לא ידוע"}
                         </p>
-                      )}
+                        <p className="mt-0.5 text-xs text-slate-400 dark:text-indigo-400 truncate">
+                          {v.salons?.owner_name}
+                        </p>
+                        {v.items_sold && (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-indigo-300/70 truncate">
+                            {v.items_sold}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        {time && (
+                          <span className="flex items-center gap-1 rounded-xl bg-indigo-50 dark:bg-indigo-800/50 px-2.5 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-300" dir="ltr">
+                            <Clock size={10} strokeWidth={2} />
+                            {time}
+                          </span>
+                        )}
+                        {v.deal_amount ? (
+                          <span className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                            ₪{v.deal_amount.toLocaleString("he-IL")}
+                          </span>
+                        ) : null}
+                        <ChevronLeft
+                          size={14}
+                          strokeWidth={2}
+                          className={`text-slate-300 dark:text-indigo-600 transition-transform ${expanded ? "-rotate-90" : ""}`}
+                        />
+                      </div>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {time && (
-                        <span className="flex items-center gap-1 rounded-xl bg-indigo-50 dark:bg-indigo-800/50 px-2.5 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-300" dir="ltr">
-                          <Clock size={10} strokeWidth={2} />
-                          {time}
-                        </span>
-                      )}
-                      {v.deal_amount ? (
-                        <span className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                          ₪{v.deal_amount.toLocaleString("he-IL")}
-                        </span>
-                      ) : null}
-                    </div>
+
+                    {/* Expanded action row */}
+                    {expanded && (
+                      <div className="border-t border-gray-50 dark:border-indigo-800/50 bg-gray-50/50 dark:bg-indigo-950/20 px-4 py-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setEditingVisit(v)}
+                            className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-indigo-700 bg-white dark:bg-indigo-800/50 py-2.5 text-xs font-bold text-slate-600 dark:text-indigo-300"
+                          >
+                            <Pencil size={12} strokeWidth={2} />
+                            ערוך
+                          </button>
+                          <button
+                            onClick={() => setDeleteVisitId(v.id)}
+                            className="flex items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-900/20 py-2.5 text-xs font-bold text-red-600 dark:text-red-400"
+                          >
+                            <Trash2 size={12} strokeWidth={2} />
+                            מחק
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -249,12 +359,31 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* New visit modal — date pre-filled to selected date */}
+      {/* New visit modal */}
       {showNewVisit && (
         <NewVisitModal
           defaultDate={selectedDate ?? getLocalToday()}
           onClose={() => setShowNewVisit(false)}
           onSaved={handleNewVisitSaved}
+        />
+      )}
+
+      {/* Edit visit modal */}
+      {editingVisit && (
+        <EditVisitModal
+          visit={editingVisit}
+          salonName={editingVisit.salons?.name ?? ""}
+          onClose={() => setEditingVisit(null)}
+          onSaved={handleEditVisitSaved}
+        />
+      )}
+
+      {/* Delete confirm dialog */}
+      {deleteVisitId !== null && (
+        <ConfirmDialog
+          message="האם למחוק את הביקור? פעולה זו אינה ניתנת לביטול."
+          onConfirm={handleDeleteVisit}
+          onCancel={() => setDeleteVisitId(null)}
         />
       )}
     </>
