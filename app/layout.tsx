@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Heebo } from "next/font/google";
+import { Scissors } from "lucide-react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
@@ -39,37 +40,30 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-[family-name:var(--font-heebo)] bg-gray-50 dark:bg-indigo-950 transition-colors duration-300">
         <ThemeProvider>
-          {/* Header */}
           <header className="sticky top-0 z-50 w-full">
             <div className="mx-auto max-w-screen-md px-4 pt-4 pb-2">
-              <div className="flex h-14 items-center justify-between rounded-3xl bg-white/90 dark:bg-indigo-900/80 px-5 shadow-[0_4px_24px_0_rgba(0,0,0,0.07)] dark:shadow-[0_4px_24px_0_rgba(0,0,0,0.3)] backdrop-blur-md transition-colors duration-300">
+              <div className="grid h-14 grid-cols-3 items-center rounded-3xl bg-white/90 dark:bg-indigo-900/80 px-5 shadow-[0_4px_24px_0_rgba(0,0,0,0.07)] dark:shadow-[0_4px_24px_0_rgba(0,0,0,0.3)] backdrop-blur-md transition-colors duration-300">
 
-                {/* Brand */}
-                <div className="flex items-center gap-3">
-                  {/* Pink dot logo mark */}
-                  <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-pink-500 shadow-md shadow-pink-200 dark:shadow-pink-900/40">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle cx="4.5" cy="4.5" r="2.5" fill="white" />
-                      <circle cx="9.5" cy="9.5" r="2.5" fill="white" opacity=".55" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-black tracking-tight text-indigo-950 dark:text-white leading-none">
-                      shkedia
-                    </p>
-                    <p className="mt-0.5 text-[10px] font-medium text-slate-400 dark:text-indigo-300/60 leading-none">
-                      גוש דן
-                    </p>
+                {/* Right col (RTL: col-1 = right side) — scissors icon */}
+                <div className="flex items-center justify-start">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-pink-500 shadow-md shadow-pink-200 dark:shadow-pink-900/40">
+                    <Scissors size={16} className="text-white" strokeWidth={2} />
                   </div>
                 </div>
 
-                {/* Nav + Actions */}
-                <div className="flex items-center gap-2">
+                {/* Center col — brand name */}
+                <div className="flex items-center justify-center">
+                  <p className="text-lg font-black tracking-tight leading-none">
+                    <span className="text-pink-500">Shaked</span>
+                    <span className="text-slate-900 dark:text-white">ia</span>
+                  </p>
+                </div>
+
+                {/* Left col (RTL: col-3 = left side) — dark mode toggle only */}
+                <div className="flex items-center justify-end">
                   <ThemeToggle />
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-900/40 text-xs font-bold text-pink-600 dark:text-pink-300">
-                    נ
-                  </div>
                 </div>
+
               </div>
             </div>
           </header>
