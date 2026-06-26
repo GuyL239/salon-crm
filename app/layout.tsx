@@ -12,8 +12,18 @@ const heebo = Heebo({
 });
 
 export const metadata: Metadata = {
-  title: "CRM סלונים",
+  title: "Salon CRM",
   description: "ניהול סלונים ולקוחות",
+  manifest: "/manifest.json",
+  themeColor: "#ec4899",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Salon CRM",
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 export default function RootLayout({
