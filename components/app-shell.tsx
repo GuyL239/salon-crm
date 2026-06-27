@@ -6,6 +6,7 @@ import { Scissors } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BottomNav } from "@/components/bottom-nav";
 import { supabase } from "@/lib/supabase";
+import { appCache } from "@/lib/cache";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -13,13 +14,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLogin  = pathname === "/login";
 
   useEffect(() => {
-    // Keep the browser client in sync with the server session.
-    // When the middleware refreshes an expiring token it sets a new cookie;
-    // this listener picks that up and triggers a router refresh so RSC data
-    // re-fetches with the updated JWT — ensuring auth.uid() stays valid in RLS.
+    // Flush the in-memory cache and refresh server state on every auth change.
+    // This prevents a previous user's cached data from being visible after
+    // login/logout — the module-level appCache Map persists across route
+    // navigations in the same browser session.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event) => {
-        if (event === "TOKEN_REFRESHED") {
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "SIGNED_OUT") {
+          appCache.invalidate(""); // clear all keys (empty prefix matches everything)
           router.refresh();
         }
         if (event === "SIGNED_OUT") {
