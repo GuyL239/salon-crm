@@ -1,13 +1,34 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Scissors } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BottomNav } from "@/components/bottom-nav";
+import { supabase } from "@/lib/supabase";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router   = useRouter();
   const isLogin  = pathname === "/login";
+
+  useEffect(() => {
+    // Keep the browser client in sync with the server session.
+    // When the middleware refreshes an expiring token it sets a new cookie;
+    // this listener picks that up and triggers a router refresh so RSC data
+    // re-fetches with the updated JWT — ensuring auth.uid() stays valid in RLS.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event) => {
+        if (event === "TOKEN_REFRESHED") {
+          router.refresh();
+        }
+        if (event === "SIGNED_OUT") {
+          router.push("/login");
+        }
+      }
+    );
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   if (isLogin) {
     // Login page: no header, no bottom nav, just the page content

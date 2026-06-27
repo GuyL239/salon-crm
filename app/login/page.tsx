@@ -44,9 +44,9 @@ export default function LoginPage() {
       return;
     }
 
-    // Session is now in cookies — refresh so middleware re-evaluates, then navigate
-    router.refresh();
+    // Navigate first, then refresh so the new page's server render sees the cookie
     router.push("/");
+    router.refresh();
   }
 
   const inputBase =

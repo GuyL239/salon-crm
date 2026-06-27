@@ -1,11 +1,20 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-// createBrowserClient stores the session in cookies (not localStorage),
-// so the middleware Edge runtime can read it and protect routes.
-export const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Factory function (Supabase official App Router pattern).
+// createBrowserClient memoizes internally by URL+key, so this always
+// returns the same singleton — but calling it as a function ensures
+// the instance is created in the browser context (isBrowser()=true),
+// not captured during SSR module evaluation.
+export function getSupabase() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
+
+// Re-export a singleton for backward-compatibility with all existing imports.
+// Because createBrowserClient memoizes, this is the same instance as getSupabase().
+export const supabase = getSupabase();
 
 export type City = {
   id: number;
