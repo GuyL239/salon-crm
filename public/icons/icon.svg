@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Pink rounded-square background (same corner radius as the app's rounded-3xl cards) -->
+  <rect width="512" height="512" rx="115" fill="#ec4899"/>
+
+  <!--
+    Scissors icon — Lucide scissors paths (24×24 viewBox) scaled to fit a
+    280×280 area centered inside the 512×512 canvas.
+
+    Scale  = 280 / 24  ≈ 11.667
+    Offset = (512 − 280) / 2 = 116 on both axes
+  -->
+  <g transform="translate(116 116) scale(11.667)"
+     fill="none"
+     stroke="white"
+     stroke-width="1.55"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+    <!-- Top handle ring -->
+    <path d="M5 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>
+    <!-- Bottom handle ring -->
+    <path d="M5 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>
+
+    <!-- Top blade (tip → pivot) -->
+    <path d="M21 6 8.5 13"/>
+    <!-- Bottom blade (tip → pivot) -->
+    <path d="M21 18 8.5 11"/>
+
+    <!-- Short shanks connecting blades to handles -->
+    <path d="M12 7.5 8.5 11l-1.1-.5"/>
+    <path d="M12 16.5 8.5 13l-1.1.5"/>
+  </g>
+</svg>

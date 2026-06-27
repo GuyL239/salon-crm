@@ -6,6 +6,67 @@ import { supabase, type City, type Salon } from "@/lib/supabase";
 
 type Reminder = { date: string; time: string };
 
+/**
+ * triggerDelayedReminderWebhook
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ARCHITECTURE: Event-Driven Push Notifications via Upstash QStash
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Why QStash and not a Supabase cron or Vercel cron?
+ *
+ *  • ZERO compute cost: a cron that polls every minute burns serverless
+ *    invocations 24 / 7. QStash stores the job and fires it at exactly
+ *    the scheduled datetime — one invocation per reminder, no polling.
+ *
+ *  • ZERO cold-start penalty on the happy path: the Next.js route handler
+ *    at /api/push/send only wakes when QStash delivers the message.
+ *
+ *  • Automatic retries: QStash retries failed deliveries with exponential
+ *    backoff, so a brief Vercel unavailability doesn't lose a reminder.
+ *
+ * Full event-driven flow (once backend is wired):
+ *
+ *   saveVisit()
+ *     └──► triggerDelayedReminderWebhook(visitId, reminder)   ← HERE
+ *               └──► POST /api/qstash/schedule                 (Next.js route)
+ *                         └──► Upstash QStash stores job
+ *                                   │  fires at reminder.date + reminder.time
+ *                                   ▼
+ *                              POST /api/push/send             (Vercel function)
+ *                                   │  reads push subscription from Supabase
+ *                                   ▼
+ *                              Web Push API  ──►  device notification
+ *                                   │  service worker wakes up
+ *                                   ▼
+ *                              showNotification()  (public/sw.js push handler)
+ *
+ * IMPLEMENTATION TODO (backend):
+ *   1. Generate VAPID key pair: `npx web-push generate-vapid-keys`
+ *   2. Create /api/qstash/schedule — sign the QStash request with
+ *      QSTASH_TOKEN (server-side env var, never exposed to the client)
+ *   3. Create /api/push/send — fetch PushSubscription from Supabase,
+ *      call webpush.sendNotification() with the VAPID private key
+ *   4. On login, call PushManager.subscribe() and save the subscription
+ *      object to a `push_subscriptions` table in Supabase
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+async function triggerDelayedReminderWebhook(
+  visitId: number,
+  reminder: Reminder
+): Promise<void> {
+  // Stub — replace the body below when /api/qstash/schedule exists
+  console.log("[reminder-webhook] stub — would schedule via QStash:", {
+    visitId,
+    reminder,
+  });
+
+  // Future implementation (uncomment once the API route is ready):
+  // await fetch("/api/qstash/schedule", {
+  //   method:  "POST",
+  //   headers: { "Content-Type": "application/json" },
+  //   body:    JSON.stringify({ visitId, reminder }),
+  // });
+}
+
 interface Props {
   defaultDate?: string;
   defaultCityId?: number;
@@ -61,15 +122,22 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
     if (!salonId || !date || !time) { setErr("יש למלא עיר, לקוח, תאריך ושעה"); return; }
     setSaving(true);
     setErr(null);
-    const { error } = await supabase.from("visits").insert({
+    // select("id") returns the newly inserted row so we can schedule webhooks
+    const { data: inserted, error } = await supabase.from("visits").insert({
       salon_id: Number(salonId),
       visit_date: date,
       visit_time: time,
       is_completed: false,
       reminders: reminders.length > 0 ? reminders : null,
-    });
+    }).select("id").single();
     setSaving(false);
     if (error) { setErr(error.message); return; }
+
+    // Fire a webhook stub for each reminder so QStash can schedule exact-time push notifications
+    if (inserted && reminders.length > 0) {
+      reminders.forEach((r) => triggerDelayedReminderWebhook(inserted.id as number, r));
+    }
+
     onSaved();
   }
 
