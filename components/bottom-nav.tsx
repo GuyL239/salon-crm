@@ -1,29 +1,28 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Home, Building2, CalendarDays, Settings } from "lucide-react";
 
 type TabId = "home" | "cities" | "calendar" | "settings";
 
 const NAV_ITEMS: { id: TabId; label: string; Icon: React.ElementType; href: string }[] = [
-  { id: "home",     label: "בית",    Icon: Home,        href: "/" },
-  { id: "cities",   label: "ערים",   Icon: Building2,   href: "/cities" },
+  { id: "home",     label: "בית",    Icon: Home,         href: "/" },
+  { id: "cities",   label: "ערים",   Icon: Building2,    href: "/cities" },
   { id: "calendar", label: "יומן",   Icon: CalendarDays, href: "/calendar" },
-  { id: "settings", label: "הגדרות", Icon: Settings,    href: "/settings" },
+  { id: "settings", label: "הגדרות", Icon: Settings,     href: "/settings" },
 ];
 
 function getActive(pathname: string): TabId {
   if (pathname.startsWith("/cities") || pathname.startsWith("/salons")) return "cities";
   if (pathname.startsWith("/calendar")) return "calendar";
   if (pathname.startsWith("/settings")) return "settings";
-  if (pathname === "/" || pathname.startsWith("/dashboard")) return "home";
   return "home";
 }
 
 export function BottomNav() {
-  const pathname   = usePathname();
-  const router     = useRouter();
-  const activeTab  = getActive(pathname);
+  const pathname  = usePathname();
+  const activeTab = getActive(pathname);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50">
@@ -32,9 +31,17 @@ export function BottomNav() {
           {NAV_ITEMS.map(({ id, label, Icon, href }) => {
             const active = activeTab === id;
             return (
-              <button
+              /*
+               * prefetch={true} tells Next.js App Router to eagerly load the
+               * route JS chunk as soon as this nav renders (not just on hover).
+               * Since the bottom nav is always visible, all four tab routes are
+               * prefetched on first mount — making subsequent tab switches
+               * instant even on a slow mobile connection.
+               */
+              <Link
                 key={id}
-                onClick={() => router.push(href)}
+                href={href}
+                prefetch={true}
                 className={`flex flex-1 flex-col items-center justify-center gap-0.5 transition-colors ${
                   active
                     ? "text-pink-500"
@@ -46,7 +53,7 @@ export function BottomNav() {
                 {active && (
                   <div className="absolute bottom-1.5 h-1 w-1 rounded-full bg-pink-500" />
                 )}
-              </button>
+              </Link>
             );
           })}
         </nav>

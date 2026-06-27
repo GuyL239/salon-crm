@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Heebo } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
+import { SwRegister } from "@/components/sw-register";
 import "./globals.css";
 
 const heebo = Heebo({
@@ -39,6 +40,8 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-[family-name:var(--font-heebo)] bg-gray-50 dark:bg-indigo-950 transition-colors duration-300">
         <ThemeProvider>
+          {/* SwRegister: silently registers /sw.js for PWA + future push support */}
+          <SwRegister />
           {/* AppShell hides header/nav on /login, shows them everywhere else */}
           <AppShell>{children}</AppShell>
         </ThemeProvider>

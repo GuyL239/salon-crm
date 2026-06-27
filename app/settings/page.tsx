@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { supabase } from "@/lib/supabase";
 import {
-  Sun, Moon, Lock, Info, LogOut, Eye, EyeOff, X, Check,
+  Sun, Moon, Lock, Info, LogOut, Eye, EyeOff, X, Check, Bell,
 } from "lucide-react";
 
 // ─── Toggle ──────────────────────────────────────────────────────────────────
@@ -181,11 +181,28 @@ export default function SettingsPage() {
   const [loggingOut, setLoggingOut]       = useState(false);
   const [changePwOpen, setChangePwOpen]   = useState(false);
 
+  // Push notification permission state — read from the browser API on mount
+  type PushPerm = "default" | "granted" | "denied" | "unsupported";
+  const [pushPerm, setPushPerm] = useState<PushPerm>("unsupported");
+  const [pushRequesting, setPushRequesting] = useState(false);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? null);
     });
+    // Check current permission state (no prompt shown yet)
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setPushPerm(Notification.permission as PushPerm);
+    }
   }, []);
+
+  async function requestPushPermission() {
+    if (!("Notification" in window)) return;
+    setPushRequesting(true);
+    const result = await Notification.requestPermission();
+    setPushPerm(result as PushPerm);
+    setPushRequesting(false);
+  }
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -219,6 +236,51 @@ export default function SettingsPage() {
           right={<Toggle on={isDark} onToggle={() => setTheme(isDark ? "light" : "dark")} />}
         />
       </div>
+
+      {/* Notifications — push permission request (Step 1 of push notification flow) */}
+      {pushPerm !== "unsupported" && (
+        <>
+          <p className="mb-1.5 px-1 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-indigo-500">התראות</p>
+          <div className="mb-4 overflow-hidden rounded-2xl border border-gray-100 dark:border-indigo-800/30">
+            <div className="flex items-center gap-3 bg-white dark:bg-indigo-900/50 px-4 py-3.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-500 dark:bg-amber-950/30">
+                <Bell size={15} strokeWidth={2} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900 dark:text-white">התראות פוש</p>
+                {/*
+                 * ARCHITECTURE NOTE:
+                 * Granting permission here is Step 1 only.
+                 * The reminders[] array in Supabase stores WHEN to notify,
+                 * but triggering the actual push requires:
+                 *   Step 2 — subscribe via PushManager (needs VAPID key)
+                 *   Step 3 — save subscription to Supabase
+                 *   Step 4 — backend cron reads reminders and calls Web Push API
+                 * Steps 2–4 are a future backend task.
+                 */}
+                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-indigo-500">
+                  {pushPerm === "granted" && "הרשאה ניתנה ✓"}
+                  {pushPerm === "denied"  && "הרשאה נדחתה — שנה בהגדרות הדפדפן"}
+                  {pushPerm === "default" && "נדרשת הרשאה לקבלת תזכורות"}
+                </p>
+              </div>
+              {pushPerm === "granted" ? (
+                <span className="shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">פעיל</span>
+              ) : pushPerm === "denied" ? (
+                <span className="shrink-0 rounded-full bg-red-100 dark:bg-red-900/30 px-2.5 py-1 text-[11px] font-bold text-red-500">חסום</span>
+              ) : (
+                <button
+                  onClick={requestPushPermission}
+                  disabled={pushRequesting}
+                  className="shrink-0 rounded-xl bg-pink-500 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-60"
+                >
+                  {pushRequesting ? "..." : "הפעל"}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Security */}
       <p className="mb-1.5 px-1 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-indigo-500">אבטחה</p>
