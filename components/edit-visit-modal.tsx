@@ -4,67 +4,39 @@ import { useState } from "react";
 import { X, Plus, Bell } from "lucide-react";
 import { supabase, type Visit } from "@/lib/supabase";
 
-type Reminder = { date: string; time: string };
+type Reminder = { date: string; time: string; job_id?: string };
 
-/**
- * triggerDelayedReminderWebhook
- * ─────────────────────────────────────────────────────────────────────────────
- * ARCHITECTURE: Event-Driven Push Notifications via Upstash QStash
- * ─────────────────────────────────────────────────────────────────────────────
- * Why QStash and not a Supabase cron or Vercel cron?
- *
- *  • ZERO compute cost: a cron that polls every minute burns serverless
- *    invocations 24 / 7. QStash stores the job and fires it at exactly
- *    the scheduled datetime — one invocation per reminder, no polling.
- *
- *  • ZERO cold-start penalty on the happy path: the Next.js route handler
- *    at /api/push/send only wakes when QStash delivers the message.
- *
- *  • Automatic retries: QStash retries failed deliveries with exponential
- *    backoff, so a brief Vercel unavailability doesn't lose a reminder.
- *
- * Full event-driven flow (once backend is wired):
- *
- *   saveVisit()
- *     └──► triggerDelayedReminderWebhook(visitId, reminder)   ← HERE
- *               └──► POST /api/qstash/schedule                 (Next.js route)
- *                         └──► Upstash QStash stores job
- *                                   │  fires at reminder.date + reminder.time
- *                                   ▼
- *                              POST /api/push/send             (Vercel function)
- *                                   │  reads push subscription from Supabase
- *                                   ▼
- *                              Web Push API  ──►  device notification
- *                                   │  service worker wakes up
- *                                   ▼
- *                              showNotification()  (public/sw.js push handler)
- *
- * IMPLEMENTATION TODO (backend):
- *   1. Generate VAPID key pair: `npx web-push generate-vapid-keys`
- *   2. Create /api/qstash/schedule — sign the QStash request with
- *      QSTASH_TOKEN (server-side env var, never exposed to the client)
- *   3. Create /api/push/send — fetch PushSubscription from Supabase,
- *      call webpush.sendNotification() with the VAPID private key
- *   4. On login, call PushManager.subscribe() and save the subscription
- *      object to a `push_subscriptions` table in Supabase
- * ─────────────────────────────────────────────────────────────────────────────
- */
-async function triggerDelayedReminderWebhook(
+// Cancels a list of QStash job IDs (fire-and-forget — errors are non-fatal)
+async function cancelJobs(jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) return;
+  try {
+    await fetch("/api/qstash/cancel", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ jobIds }),
+    });
+  } catch { /* non-fatal */ }
+}
+
+// Schedules one reminder via QStash, returns jobId or null on failure
+async function scheduleReminder(
   visitId: number,
-  reminder: Reminder
-): Promise<void> {
-  // Stub — replace the body below when /api/qstash/schedule exists
-  console.log("[reminder-webhook] stub — would schedule via QStash:", {
-    visitId,
-    reminder,
-  });
-
-  // Future implementation (uncomment once the API route is ready):
-  // await fetch("/api/qstash/schedule", {
-  //   method:  "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body:    JSON.stringify({ visitId, reminder }),
-  // });
+  salonName: string,
+  reminder: { date: string; time: string }
+): Promise<string | null> {
+  const reminderAt = new Date(`${reminder.date}T${reminder.time}:00`).getTime();
+  try {
+    const res = await fetch("/api/qstash/schedule", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ visitId, salonName, reminderAt }),
+    });
+    if (!res.ok) return null;
+    const { jobId } = await res.json();
+    return jobId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 interface Props {
@@ -79,7 +51,10 @@ export function EditVisitModal({ visit, salonName, onClose, onSaved }: Props) {
   const [items, setItems]     = useState(visit.items_sold ?? "");
   const [amount, setAmount]   = useState(visit.deal_amount != null ? String(visit.deal_amount) : "");
   const [notes, setNotes]     = useState(visit.notes ?? "");
-  const [reminders, setReminders] = useState<Reminder[]>(visit.reminders ?? []);
+  // Strip job_ids from the displayed reminders — the user edits date/time only
+  const [reminders, setReminders] = useState<Reminder[]>(
+    (visit.reminders ?? []).map(({ date, time }) => ({ date, time }))
+  );
   const [saving, setSaving]   = useState(false);
   const [err, setErr]         = useState<string | null>(null);
 
@@ -98,6 +73,14 @@ export function EditVisitModal({ visit, salonName, onClose, onSaved }: Props) {
   async function handleSave() {
     setSaving(true);
     setErr(null);
+
+    // 1. Cancel all previously-scheduled QStash jobs for this visit
+    const oldJobIds = (visit.reminders ?? [])
+      .map(r => r.job_id)
+      .filter((id): id is string => Boolean(id));
+    await cancelJobs(oldJobIds);
+
+    // 2. Persist the updated visit fields (reminders without job_ids yet)
     const updated: Partial<Visit> = {
       visit_time:  time.trim() || null,
       items_sold:  items.trim() || null,
@@ -106,14 +89,24 @@ export function EditVisitModal({ visit, salonName, onClose, onSaved }: Props) {
       reminders:   reminders.length > 0 ? reminders : null,
     };
     const { error } = await supabase.from("visits").update(updated).eq("id", visit.id);
-    setSaving(false);
-    if (error) { setErr(error.message); return; }
+    if (error) { setErr(error.message); setSaving(false); return; }
 
-    // Fire a webhook stub for each reminder so QStash can schedule exact-time push notifications
+    // 3. Schedule new reminders and write the job IDs back to Supabase
     if (reminders.length > 0) {
-      reminders.forEach((r) => triggerDelayedReminderWebhook(visit.id, r));
+      const scheduled = await Promise.all(
+        reminders.map(async (r) => {
+          const jobId = await scheduleReminder(visit.id, salonName, r);
+          return { ...r, ...(jobId ? { job_id: jobId } : {}) };
+        })
+      );
+      await supabase
+        .from("visits")
+        .update({ reminders: scheduled })
+        .eq("id", visit.id);
+      updated.reminders = scheduled;
     }
 
+    setSaving(false);
     onSaved({ ...visit, ...updated });
   }
 
@@ -161,7 +154,7 @@ export function EditVisitModal({ visit, salonName, onClose, onSaved }: Props) {
           </div>
         </div>
 
-        {/* ── Reminders section ── */}
+        {/* Reminders */}
         <div className="mb-5">
           <div className="mb-2 flex items-center justify-between">
             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-indigo-400">

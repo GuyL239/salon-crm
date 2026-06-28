@@ -353,6 +353,16 @@ export default function SalonPage() {
     const vid = deleteVisitId;
     setDeleteVisitId(null);
     setExpandedIds((prev) => { const n = new Set(prev); n.delete(vid); return n; });
+    // Cancel any pending QStash reminders before removing the row
+    const jobIds = (visits.find(v => v.id === vid)?.reminders ?? [])
+      .map(r => r.job_id).filter((id): id is string => Boolean(id));
+    if (jobIds.length > 0) {
+      fetch("/api/qstash/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds }),
+      }).catch(() => {});
+    }
     setVisits((prev) => prev.filter((v) => v.id !== vid));
     await supabase.from("visits").delete().eq("id", vid);
   }

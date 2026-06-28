@@ -2,38 +2,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import webpush from "web-push";
+import { Receiver } from "@upstash/qstash";
 
-// Configure once — VAPID keys must be in env vars (never in source)
 webpush.setVapidDetails(
   "mailto:guylanker2@gmail.com",
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
   process.env.VAPID_PRIVATE_KEY!
 );
 
+const receiver = new Receiver({
+  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
+  nextSigningKey:    process.env.QSTASH_NEXT_SIGNING_KEY!,
+});
+
 // POST /api/push/send
-// Body: { userId: string, title: string, body: string, url?: string }
-// Looks up the user's stored PushSubscription and fires the Web Push message.
-// Called by the QStash webhook when a scheduled reminder fires.
+// Called exclusively by QStash at the scheduled reminder time.
+// Body (from QStash): { userId, visitId, title, body, url? }
 export async function POST(req: NextRequest) {
-  // Validate QStash signature in production (guards against spoofed requests).
-  // Skipped here for now — add @upstash/qstash signature verification when wiring QStash.
+  // Verify the request genuinely came from QStash (prevents spoofing)
+  const rawBody = await req.text();
+  const signature = req.headers.get("upstash-signature") ?? "";
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,   // service role: read any user's subscription
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: () => {},
-      },
-    }
-  );
+  try {
+    await receiver.verify({ signature, body: rawBody });
+  } catch {
+    return NextResponse.json({ error: "Invalid QStash signature" }, { status: 401 });
+  }
 
-  const { userId, title, body, url = "/" } = await req.json();
+  const { userId, title, body, url = "/" } = JSON.parse(rawBody);
   if (!userId || !title || !body) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
+
+  // Use service-role client so we can read any user's subscription regardless of RLS
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
+  );
 
   const { data: sub, error } = await supabase
     .from("push_subscriptions")
@@ -50,10 +57,11 @@ export async function POST(req: NextRequest) {
     keys: { p256dh: sub.p256dh as string, auth: sub.auth as string },
   };
 
-  const payload = JSON.stringify({ title, body, icon: "/icons/icon-192.png", url });
-
   try {
-    await webpush.sendNotification(pushSub, payload);
+    await webpush.sendNotification(
+      pushSub,
+      JSON.stringify({ title, body, icon: "/icons/icon-192.png", url })
+    );
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Push failed";

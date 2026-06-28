@@ -4,67 +4,31 @@ import { useEffect, useState } from "react";
 import { X, Plus, Bell } from "lucide-react";
 import { supabase, type City, type Salon } from "@/lib/supabase";
 
-type Reminder = { date: string; time: string };
+type Reminder = { date: string; time: string; job_id?: string };
 
-/**
- * triggerDelayedReminderWebhook
- * ─────────────────────────────────────────────────────────────────────────────
- * ARCHITECTURE: Event-Driven Push Notifications via Upstash QStash
- * ─────────────────────────────────────────────────────────────────────────────
- * Why QStash and not a Supabase cron or Vercel cron?
- *
- *  • ZERO compute cost: a cron that polls every minute burns serverless
- *    invocations 24 / 7. QStash stores the job and fires it at exactly
- *    the scheduled datetime — one invocation per reminder, no polling.
- *
- *  • ZERO cold-start penalty on the happy path: the Next.js route handler
- *    at /api/push/send only wakes when QStash delivers the message.
- *
- *  • Automatic retries: QStash retries failed deliveries with exponential
- *    backoff, so a brief Vercel unavailability doesn't lose a reminder.
- *
- * Full event-driven flow (once backend is wired):
- *
- *   saveVisit()
- *     └──► triggerDelayedReminderWebhook(visitId, reminder)   ← HERE
- *               └──► POST /api/qstash/schedule                 (Next.js route)
- *                         └──► Upstash QStash stores job
- *                                   │  fires at reminder.date + reminder.time
- *                                   ▼
- *                              POST /api/push/send             (Vercel function)
- *                                   │  reads push subscription from Supabase
- *                                   ▼
- *                              Web Push API  ──►  device notification
- *                                   │  service worker wakes up
- *                                   ▼
- *                              showNotification()  (public/sw.js push handler)
- *
- * IMPLEMENTATION TODO (backend):
- *   1. Generate VAPID key pair: `npx web-push generate-vapid-keys`
- *   2. Create /api/qstash/schedule — sign the QStash request with
- *      QSTASH_TOKEN (server-side env var, never exposed to the client)
- *   3. Create /api/push/send — fetch PushSubscription from Supabase,
- *      call webpush.sendNotification() with the VAPID private key
- *   4. On login, call PushManager.subscribe() and save the subscription
- *      object to a `push_subscriptions` table in Supabase
- * ─────────────────────────────────────────────────────────────────────────────
- */
-async function triggerDelayedReminderWebhook(
+// Schedules one reminder via QStash. Returns the QStash jobId (stored in
+// Supabase alongside the reminder so it can be cancelled on edit/delete).
+async function scheduleReminder(
   visitId: number,
-  reminder: Reminder
-): Promise<void> {
-  // Stub — replace the body below when /api/qstash/schedule exists
-  console.log("[reminder-webhook] stub — would schedule via QStash:", {
-    visitId,
-    reminder,
-  });
+  salonName: string,
+  reminder: { date: string; time: string }
+): Promise<string | null> {
+  // Compute fire-time in the browser's local timezone (Israel) — this gives
+  // the correct UTC timestamp without any server-side timezone guessing.
+  const reminderAt = new Date(`${reminder.date}T${reminder.time}:00`).getTime();
 
-  // Future implementation (uncomment once the API route is ready):
-  // await fetch("/api/qstash/schedule", {
-  //   method:  "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body:    JSON.stringify({ visitId, reminder }),
-  // });
+  try {
+    const res = await fetch("/api/qstash/schedule", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ visitId, salonName, reminderAt }),
+    });
+    if (!res.ok) return null;
+    const { jobId } = await res.json();
+    return jobId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 interface Props {
@@ -122,22 +86,37 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
     if (!salonId || !date || !time) { setErr("יש למלא עיר, לקוח, תאריך ושעה"); return; }
     setSaving(true);
     setErr(null);
-    // select("id") returns the newly inserted row so we can schedule webhooks
+
+    // 1. Insert the visit and get its ID back
     const { data: inserted, error } = await supabase.from("visits").insert({
-      salon_id: Number(salonId),
+      salon_id:   Number(salonId),
       visit_date: date,
       visit_time: time,
       is_completed: false,
       reminders: reminders.length > 0 ? reminders : null,
     }).select("id").single();
-    setSaving(false);
-    if (error) { setErr(error.message); return; }
 
-    // Fire a webhook stub for each reminder so QStash can schedule exact-time push notifications
+    if (error) { setErr(error.message); setSaving(false); return; }
+
+    // 2. Schedule each reminder via QStash and collect job IDs
     if (inserted && reminders.length > 0) {
-      reminders.forEach((r) => triggerDelayedReminderWebhook(inserted.id as number, r));
+      const salonName = salons.find(s => s.id === Number(salonId))?.name ?? "סלון";
+
+      const scheduled = await Promise.all(
+        reminders.map(async (r) => {
+          const jobId = await scheduleReminder(inserted.id as number, salonName, r);
+          return { ...r, ...(jobId ? { job_id: jobId } : {}) };
+        })
+      );
+
+      // 3. Persist job IDs back into the visit row
+      await supabase
+        .from("visits")
+        .update({ reminders: scheduled })
+        .eq("id", inserted.id);
     }
 
+    setSaving(false);
     onSaved();
   }
 
@@ -184,7 +163,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
             </select>
           </div>
 
-          {/* Salon — filtered by city */}
+          {/* Salon */}
           <div>
             <label className={labelCls}>לקוח / סלון</label>
             <select
@@ -200,7 +179,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
             </select>
           </div>
 
-          {/* Date + Time side by side */}
+          {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>תאריך</label>
@@ -224,7 +203,7 @@ export function NewVisitModal({ defaultDate, defaultCityId, onClose, onSaved }: 
           </div>
         </div>
 
-        {/* ── Reminders section ── */}
+        {/* Reminders */}
         <div className="mb-5">
           <div className="mb-2 flex items-center justify-between">
             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-indigo-400">

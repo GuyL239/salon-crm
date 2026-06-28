@@ -174,6 +174,15 @@ export default function CalendarPage() {
     const id = deleteVisitId;
     setDeleteVisitId(null);
     setExpandedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    const jobIds = (dateVisits.find(v => v.id === id)?.reminders ?? [])
+      .map(r => r.job_id).filter((jid): jid is string => Boolean(jid));
+    if (jobIds.length > 0) {
+      fetch("/api/qstash/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds }),
+      }).catch(() => {});
+    }
     setDateVisits((prev) => prev.filter((v) => v.id !== id));
     await supabase.from("visits").delete().eq("id", id);
     refreshDots();

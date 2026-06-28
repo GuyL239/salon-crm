@@ -244,6 +244,15 @@ export default function HomePage() {
     if (deleteVisitId === null) return;
     const id = deleteVisitId;
     setDeleteVisitId(null);
+    const jobIds = (agenda.find(a => a.visit.id === id)?.visit.reminders ?? [])
+      .map(r => r.job_id).filter((jid): jid is string => Boolean(jid));
+    if (jobIds.length > 0) {
+      fetch("/api/qstash/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobIds }),
+      }).catch(() => {});
+    }
     setAgenda((prev) => prev.filter((a) => a.visit.id !== id));
     await supabase.from("visits").delete().eq("id", id);
   }
