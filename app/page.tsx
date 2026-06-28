@@ -45,7 +45,8 @@ function hebrewDate() {
   });
 }
 function waLink(phone: string) {
-  return `https://wa.me/${phone.replace(/\D/g, "")}`;
+  const digits = phone.replace(/\D/g, "").replace(/^0/, "");
+  return `https://wa.me/972${digits}`;
 }
 function wazeLink(address: string) {
   return `https://waze.com/ul?q=${encodeURIComponent(address)}`;

@@ -461,7 +461,7 @@ export default function SalonPage() {
           <div className="mt-5 grid grid-cols-2 gap-3">
             {salon?.phone_number ? (
               <a
-                href={`https://wa.me/${salon.phone_number.replace(/\D/g, "")}`}
+                href={`https://wa.me/972${salon.phone_number.replace(/\D/g, "").replace(/^0/, "")}`}
                 target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-200 dark:shadow-emerald-900/30 transition-all hover:bg-emerald-600 hover:shadow-lg active:scale-[0.97]"
               >
