@@ -198,10 +198,31 @@ export default function SettingsPage() {
   }, []);
 
   async function requestPushPermission() {
-    if (!("Notification" in window)) return;
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
     setPushRequesting(true);
-    const result = await Notification.requestPermission();
-    setPushPerm(result as PushPerm);
+
+    const permission = await Notification.requestPermission();
+    setPushPerm(permission as PushPerm);
+
+    if (permission === "granted") {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        const sub = existing ?? await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+        });
+        // Save subscription to Supabase via our API route
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        });
+      } catch (e) {
+        console.error("[push] subscription failed:", e);
+      }
+    }
+
     setPushRequesting(false);
   }
 
