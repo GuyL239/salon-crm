@@ -62,6 +62,6 @@ export const config = {
      * This covers /, /cities, /cities/[id], /salons/[id], /calendar,
      * /settings, and /login.
      */
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|icons|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|icons|api/push/send|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
