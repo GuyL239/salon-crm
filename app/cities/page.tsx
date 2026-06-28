@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, type City } from "@/lib/supabase";
 import { appCache } from "@/lib/cache";
-import { Plus, ChevronLeft, Trash2 } from "lucide-react";
+import { Plus, ChevronLeft, Trash2, X } from "lucide-react";
 
 const TINTS = [
   { bg: "bg-pink-50 dark:bg-pink-950/30",       text: "text-pink-600 dark:text-pink-300" },
@@ -14,6 +14,95 @@ const TINTS = [
   { bg: "bg-violet-50 dark:bg-violet-950/30",   text: "text-violet-600 dark:text-violet-300" },
   { bg: "bg-amber-50 dark:bg-amber-950/30",     text: "text-amber-600 dark:text-amber-300" },
 ] as const;
+
+// ─── Add City Sheet ───────────────────────────────────────────────────────────
+
+function AddCitySheet({ onClose, onSaved }: { onClose: () => void; onSaved: (city: City) => void }) {
+  const [name, setName]       = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [err, setErr]         = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Auto-focus the input when the sheet opens
+    setTimeout(() => inputRef.current?.focus(), 80);
+  }, []);
+
+  async function handleSave() {
+    const trimmed = name.trim();
+    if (!trimmed) { setErr("יש להזין שם עיר"); return; }
+    setSaving(true);
+    setErr(null);
+    const { data, error } = await supabase
+      .from("cities")
+      .insert({ name: trimmed })
+      .select()
+      .single();
+    setSaving(false);
+    if (error) { setErr(error.message); return; }
+    onSaved(data as City);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-10 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200 dark:bg-indigo-700" />
+
+        <div className="mb-5 flex items-center justify-between">
+          <h3 className="text-lg font-black text-slate-900 dark:text-white">הוספת עיר</h3>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-indigo-800 text-slate-400 dark:text-indigo-300"
+          >
+            <X size={15} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        <div className="mb-5">
+          <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">
+            שם העיר
+          </label>
+          <input
+            ref={inputRef}
+            value={name}
+            onChange={(e) => { setName(e.target.value); setErr(null); }}
+            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            placeholder="למשל: תל אביב"
+            className="w-full rounded-xl border border-gray-200 dark:border-indigo-700 bg-gray-50 dark:bg-indigo-800/60 px-3 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-pink-400 dark:focus:border-pink-600 transition-colors"
+          />
+        </div>
+
+        {err && (
+          <p className="mb-4 rounded-xl bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs font-mono text-red-600 dark:text-red-400">
+            {err}
+          </p>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300"
+          >
+            ביטול
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-2xl bg-pink-500 py-3 text-sm font-bold text-white shadow-md shadow-pink-200 dark:shadow-pink-900/30 disabled:opacity-60"
+          >
+            {saving ? "שומר..." : "הוסף עיר"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Swipeable city row ───────────────────────────────────────────────────────
 
@@ -27,12 +116,12 @@ function CityRow({
   const router = useRouter();
   const t = TINTS[index % TINTS.length];
 
-  const REVEAL_W = 88; // px of red delete area to reveal
-  const [offset, setOffset]         = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+  const REVEAL_W = 88;
+  const [offset, setOffset]           = useState(0);
+  const [isDragging, setIsDragging]   = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [deleting, setDeleting]     = useState(false);
-  const [deleteErr, setDeleteErr]   = useState<string | null>(null);
+  const [deleting, setDeleting]       = useState(false);
+  const [deleteErr, setDeleteErr]     = useState<string | null>(null);
   const startX = useRef<number | null>(null);
 
   function onTouchStart(e: React.TouchEvent) {
@@ -43,15 +132,13 @@ function CityRow({
   function onTouchMove(e: React.TouchEvent) {
     if (startX.current === null) return;
     const dx = e.touches[0].clientX - startX.current;
-    // Only allow swiping right (positive dx) to reveal the delete area
     if (dx > 0) setOffset(Math.min(dx, REVEAL_W + 12));
-    else setOffset(Math.max(offset + (dx * 0.1), 0)); // slight resistance swiping back
+    else setOffset(Math.max(offset + (dx * 0.1), 0));
   }
 
   function onTouchEnd() {
     startX.current = null;
     setIsDragging(false);
-    // Snap: if past 40% threshold → reveal, else snap back
     setOffset(offset > REVEAL_W * 0.4 ? REVEAL_W : 0);
   }
 
@@ -69,12 +156,10 @@ function CityRow({
       setShowConfirm(false);
       setOffset(0);
     }
-    // On success the parent removes the city from the list, row unmounts
   }
 
   return (
     <div className="relative overflow-hidden rounded-3xl">
-      {/* Red delete area — sits behind the card on the left */}
       <div
         className="absolute inset-y-0 left-0 flex w-[88px] cursor-pointer items-center justify-center rounded-3xl bg-red-500"
         onClick={() => setShowConfirm(true)}
@@ -82,7 +167,6 @@ function CityRow({
         <Trash2 size={20} className="text-white" strokeWidth={2} />
       </div>
 
-      {/* Swipeable card */}
       <div
         style={{
           transform: `translateX(${offset}px)`,
@@ -101,7 +185,6 @@ function CityRow({
           <p className="text-base font-bold text-slate-900 dark:text-white">{city.name}</p>
           <p className="mt-0.5 text-xs text-slate-400 dark:text-indigo-400">לחץ לצפייה בסלונים</p>
         </div>
-        {/* Trash icon visible on desktop (md+); hidden on mobile where swipe is used */}
         <button
           className="hidden md:flex h-8 w-8 items-center justify-center rounded-xl text-slate-300 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-colors"
           onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }}
@@ -111,14 +194,12 @@ function CityRow({
         <ChevronLeft size={16} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-indigo-600" />
       </div>
 
-      {/* Inline error (e.g. FK constraint prevents deletion) */}
       {deleteErr && (
         <div className="mt-1 rounded-xl bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">
           {deleteErr}
         </div>
       )}
 
-      {/* Confirm delete dialog */}
       {showConfirm && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm"
@@ -161,13 +242,12 @@ export default function CitiesPage() {
   const [cities, setCities]         = useState<City[]>([]);
   const [loading, setLoading]       = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showAddSheet, setShowAddSheet] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    // Show cached data instantly — no skeleton flash on subsequent visits
     const cached = appCache.get<City[]>("cities");
     if (cached) { setCities(cached); setLoading(false); }
-    // Always re-fetch silently to pick up any changes
     supabase.from("cities").select("*").order("name").then(({ data, error }) => {
       if (!alive) return;
       if (error) { if (!cached) setFetchError(error.message); }
@@ -182,17 +262,29 @@ export default function CitiesPage() {
     if (error) return error.message;
     setCities((prev) => {
       const next = prev.filter((c) => c.id !== cityId);
-      appCache.set("cities", next); // keep cache coherent
+      appCache.set("cities", next);
       return next;
     });
     return null;
+  }
+
+  function handleCityAdded(city: City) {
+    setCities((prev) => {
+      const next = [...prev, city].sort((a, b) => a.name.localeCompare(b.name, "he"));
+      appCache.set("cities", next);
+      return next;
+    });
+    setShowAddSheet(false);
   }
 
   return (
     <>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">ערים</h1>
-        <button className="flex items-center gap-1.5 rounded-2xl bg-pink-50 dark:bg-pink-950/30 px-4 py-2 text-xs font-bold text-pink-600 dark:text-pink-300">
+        <button
+          onClick={() => setShowAddSheet(true)}
+          className="flex items-center gap-1.5 rounded-2xl bg-pink-50 dark:bg-pink-950/30 px-4 py-2 text-xs font-bold text-pink-600 dark:text-pink-300"
+        >
           <Plus size={13} strokeWidth={2.5} />
           הוסף עיר
         </button>
@@ -210,7 +302,6 @@ export default function CitiesPage() {
         </div>
       )}
 
-      {/* Hint for mobile users */}
       {!loading && cities.length > 0 && (
         <p className="mb-2 text-right text-xs text-slate-400 dark:text-indigo-600 md:hidden">
           החלק ימינה למחיקת עיר
@@ -227,6 +318,13 @@ export default function CitiesPage() {
           />
         ))}
       </div>
+
+      {showAddSheet && (
+        <AddCitySheet
+          onClose={() => setShowAddSheet(false)}
+          onSaved={handleCityAdded}
+        />
+      )}
     </>
   );
 }
