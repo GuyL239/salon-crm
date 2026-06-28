@@ -5,10 +5,11 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase, type City, type Salon, type Visit } from "@/lib/supabase";
 import { appCache } from "@/lib/cache";
 import { NewVisitModal } from "@/components/new-visit-modal";
+import { EditVisitModal } from "@/components/edit-visit-modal";
 import {
   MapPin, Plus, Check, Phone, Navigation2,
   MessageSquare, ChevronDown, ChevronUp, ChevronLeft,
-  Package, StickyNote, Pencil, X, Clock, Trash2,
+  Package, StickyNote, Pencil, Clock, Trash2,
 } from "lucide-react";
 
 // ─── Midnight-safe local date ─────────────────────────────────────────────────
@@ -54,80 +55,6 @@ function wazeLink(address: string) {
 function fmtTime(t: string | null | undefined) {
   if (!t) return null;
   return t.substring(0, 5); // "HH:MM:SS" → "HH:MM"
-}
-
-// ─── Edit Item Modal (salon fields + visit time) ──────────────────────────────
-
-function EditItemModal({
-  item, onClose, onSaved,
-}: {
-  item: AgendaItem;
-  onClose: () => void;
-  onSaved: (salonId: number, visitId: number, phone: string | null, address: string, visitTime: string | null) => void;
-}) {
-  const [phone, setPhone]     = useState(item.salon.phone_number ?? "");
-  const [address, setAddress] = useState(item.salon.street_address);
-  const [time, setTime]       = useState(
-    item.visit.visit_time ? item.visit.visit_time.substring(0, 5) : ""
-  );
-  const [saving, setSaving] = useState(false);
-  const [err, setErr]       = useState<string | null>(null);
-
-  async function handleSave() {
-    setSaving(true);
-    setErr(null);
-    const [salonRes, visitRes] = await Promise.all([
-      supabase.from("salons")
-        .update({ phone_number: phone.trim() || null, street_address: address.trim() })
-        .eq("id", item.salon.id),
-      supabase.from("visits")
-        .update({ visit_time: time.trim() || null })
-        .eq("id", item.visit.id),
-    ]);
-    setSaving(false);
-    if (salonRes.error) { setErr(salonRes.error.message); return; }
-    if (visitRes.error) { setErr(visitRes.error.message); return; }
-    onSaved(item.salon.id, item.visit.id, phone.trim() || null, address.trim(), time.trim() || null);
-  }
-
-  const inputCls =
-    "w-full rounded-xl border border-gray-200 dark:border-indigo-700 bg-gray-50 dark:bg-indigo-800/60 px-3 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-pink-400 dark:focus:border-pink-600 transition-colors";
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-screen-md rounded-t-3xl bg-white dark:bg-indigo-900 px-6 pt-5 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-200 dark:bg-indigo-700" />
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-black text-slate-900 dark:text-white">עריכת ביקור</h3>
-          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-indigo-800 text-slate-400">
-            <X size={15} strokeWidth={2.5} />
-          </button>
-        </div>
-        <p className="mb-4 truncate text-sm font-bold text-pink-500">{item.salon.name}</p>
-        <div className="flex flex-col gap-3 mb-5">
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">כתובת</label>
-            <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">מספר טלפון</label>
-            <input dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-slate-500 dark:text-indigo-400">שעת ביקור</label>
-            <input dir="ltr" type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
-          </div>
-        </div>
-        {err && <p className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs font-mono text-red-600 dark:text-red-400">{err}</p>}
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={onClose} className="rounded-2xl border border-gray-200 dark:border-indigo-700 py-3 text-sm font-bold text-slate-600 dark:text-indigo-300">ביטול</button>
-          <button onClick={handleSave} disabled={saving} className="rounded-2xl bg-pink-500 py-3 text-sm font-bold text-white disabled:opacity-60">
-            {saving ? "שומר..." : "שמור"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ─── Home Page ────────────────────────────────────────────────────────────────
@@ -257,19 +184,9 @@ export default function HomePage() {
     await supabase.from("visits").delete().eq("id", id);
   }
 
-  function handleItemSaved(
-    salonId: number, visitId: number,
-    phone: string | null, address: string, visitTime: string | null
-  ) {
+  function handleVisitSaved(updated: Visit) {
     setAgenda((prev) =>
-      prev.map((a) => {
-        if (a.visit.id !== visitId) return a;
-        return {
-          ...a,
-          salon: { ...a.salon, phone_number: phone, street_address: address },
-          visit: { ...a.visit, visit_time: visitTime },
-        };
-      })
+      prev.map((a) => a.visit.id === updated.id ? { ...a, visit: updated } : a)
     );
     setEditingItem(null);
   }
@@ -551,10 +468,11 @@ export default function HomePage() {
 
       {/* Edit modal */}
       {editingItem && (
-        <EditItemModal
-          item={editingItem}
+        <EditVisitModal
+          visit={editingItem.visit}
+          salonName={editingItem.salon.name}
           onClose={() => setEditingItem(null)}
-          onSaved={handleItemSaved}
+          onSaved={handleVisitSaved}
         />
       )}
 
